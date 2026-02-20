@@ -32,7 +32,7 @@ async def login_google(request: Request):
     """
     Redirects the user to Google's OAuth 2.0 server for authentication.
     """
-    return await auth_utils.oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI) 
+    return await auth_utils.oauth.google.authorize_redirect(request, GOOGLE_REDIRECT_URI, prompt='select_account') 
 
 @AuthRouter.get("/callback/google")
 async def auth_google(request: Request, db: db_dependency):

@@ -160,6 +160,7 @@ def create_user_from_google_info(google_user: GoogleUser):
     if existing_user:
         existing_user.google_sub = google_sub
         response = supabase.table('User').update({"google_sub": google_sub}).eq("email", email).execute()
+        response = supabase.table('User').update({"updated_at": datetime.now(UTC)}).eq("email", email).execute()
         return existing_user
     else:
         new_user = User(
