@@ -8,6 +8,7 @@ from fastapi.security import HTTPBearer
 
 from app.routes.auth import AuthRouter
 from app.routes.events import EventRouter
+from app.routes.bets import BetsRouter
 
 app = FastAPI()
 
@@ -38,3 +39,4 @@ async def hello_world():
 
 app.include_router(AuthRouter)
 app.include_router(EventRouter)
+app.include_router(BetsRouter)
