@@ -47,8 +47,6 @@ oauth.register(
 )
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 def get_user_by_email(email: str) -> UserInDB:
     """
     Util Function used to retrieve a user from out supabase db

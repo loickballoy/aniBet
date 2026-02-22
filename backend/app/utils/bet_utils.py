@@ -29,10 +29,24 @@ def get_outcome_by_id(outcome_id: int) -> EventOutcome | None:
 
 # -- Bet helpers --
 
+def get_bets_by_user(user_id: int) -> list[Bet]:
+    supabase = next(get_supabase())
+    res = supabase.table("bets").select("*").eq("user_id", user_id).execute()
+    return [Bet(**row) for row in res.data]
+
 def get_bets_by_outcome(outcome_id: int) -> list[Bet]:
     supabase = next(get_supabase())
     res = supabase.table("bets").select("*").eq("outcome_id", outcome_id).execute()
     return [Bet(**row) for row in res.data]
+
+def user_already_bet(user_id: int, event_id: int) -> bool:
+    supabase=next(get_supabase())
+    outcomes = get_outcomes_for_event(event_id)
+    outcomes_id = [o.id for o in outcomes]
+    if not outcomes_id:
+        return False
+    res = supabase.table("bets").select("id").eq("user_id", user_id).in_("outcome_id", outcomes_id).neq("status", "refunded").execute()
+    return len(res.data) > 0
 
 # -- Payout logic --
 
@@ -42,6 +56,60 @@ def calculate_payout(points_placed: int, outcome_pool: int, event_pool: int, fee
     gross_payout = (points_placed / outcome_pool) * event_pool
     net = gross_payout * (1 - fee_bps / 10000)
     return int(net)
+
+def calculate_potential_payout(points_placed: int, outcome_id: int, event: Event):
+    outcome = get_outcome_by_id(outcome_id)
+    if not outcome:
+        return points_placed
+
+    projected_outcome_pool = outcome.pool_points + points_placed
+    projected_total_pool = event.pool_total + points_placed
+    return calculate_payout(points_placed, projected_outcome_pool, projected_total_pool, event.fee_bps)
+
+# -- Core Bet placement --
+
+def place_bet(user_id: int, outcome_id: int, points_placed: int) -> Bet:
+    """
+    Atomically:
+      1. Deduct points from user
+      2. Insert bet row
+      3. Update outcome pool_points
+      4. Update event pool_total
+      5. Insert point_transaction (debit)
+    """
+    supabase = next(get_supabase())
+
+    outcome = get_outcome_by_id(outcome_id)
+    event = get_event_by_id(outcome.event_id)
+
+    # 1. Deduct user balance
+    supabase.rpc("deduct_user_points", {"p_user_id": user_id, "p_amount": points_placed}).execute()
+
+    # 2. Insert bet
+    bet_data = {"user_id": user_id, "outcome_id": outcome_id, "points_placed": points_placed, "status": "pending"}
+    bet_res = supabase.table("bets").insert(bet_data).execute()
+    bet = Bet(**bet_res.data[0])
+
+    # 3. Update outcome pool
+    supabase.table("event_outcomes").update(
+        {"pool_points": outcome.pool_points + points_placed}
+    ).eq("id", outcome_id).execute()
+
+    # 4. Update event total pool
+    supabase.table("events").update(
+        {"pool_total": event.pool_total + points_placed}
+    ).eq("id", event.id).execute()
+
+    # 5. Record transaction
+    supabase.table("point_transactions").insert({
+        "user_id": user_id,
+        "kind": "bet_placed",
+        "amount": -points_placed,
+        "reference_type": "bet",
+        "reference_id": bet.id,
+    }).execute()
+
+    return bet
 
 # --Event resolution -- 
 
