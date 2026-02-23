@@ -62,4 +62,4 @@ async def get_my_bet_on_event(event_id: int, current_user: user_dependency):
     for bet in bets:
         if bet.outcome_id in outcome_ids:
             return bet
-    return Bet
+    return None

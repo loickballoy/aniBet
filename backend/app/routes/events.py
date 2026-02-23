@@ -13,9 +13,9 @@ EventRouter = APIRouter(
 )
 
 @EventRouter.get('/', response_model=list[EventWithOutcomes])
-async def list_events(status: str | None = None, limit: int = 20, offset: int = 0):
+async def list_events(status: str | None = None, series_id: int | None = None, limit: int = 20, offset: int = 0):
     """List events with their outcomes. Optionally filter by status (open/locked/resolved)."""
-    events = bet_utils.get_events(status=status, limit=limit, offset=offset)
+    events = bet_utils.get_events(status=status, series_id=series_id, limit=limit, offset=offset)
     result = []
     for event in events:
         outcomes = bet_utils.get_outcomes_for_event(event.id)
@@ -25,7 +25,7 @@ async def list_events(status: str | None = None, limit: int = 20, offset: int = 
 @EventRouter.get('/{event_id}', response_model=EventWithOutcomes)
 async def get_event(event_id: int):
     """Get details of a specific event by ID, including its outcomes."""
-    events = bet_utils.get_events(limit=1, offset=0)
+    events = bet_utils.get_event_by_id(event_id)
     event = next((e for e in events if e.id == event_id), None)
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
@@ -44,7 +44,7 @@ async def create_event(request: CreateEventRequest, current_user: user_dependenc
     event_data = {
         "title": request.title,
         "description": request.description,
-        "category": request.category,
+        "series_id": request.series_id,
         "opens_at": request.opens_at.isoformat() if request.opens_at else None,
         "locks_at": request.locks_at.isoformat() if request.locks_at else None,
         "fee_bps": request.fee_bps,
@@ -98,3 +98,4 @@ async def lock_event(event_id: int, current_user: user_dependency):
     supabase = next(get_supabase())
     supabase.table("events").update({"status": "locked"}).eq("id", event_id).execute()
     return {"message": "Event locked"}
+
