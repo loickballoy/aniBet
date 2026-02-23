@@ -9,6 +9,9 @@ from fastapi.security import HTTPBearer
 from app.routes.auth import AuthRouter
 from app.routes.events import EventRouter
 from app.routes.bets import BetsRouter
+from app.routes.ranking import RankRouter
+from app.routes.series import SeriesRouter
+from app.routes.bingo import BingoRouter
 
 app = FastAPI()
 
@@ -40,3 +43,6 @@ async def hello_world():
 app.include_router(AuthRouter)
 app.include_router(EventRouter)
 app.include_router(BetsRouter)
+app.include_router(RankRouter)
+app.include_router(SeriesRouter)
+app.include_router(BingoRouter)

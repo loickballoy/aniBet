@@ -18,7 +18,7 @@ class Event(BaseModel):
     updated_at: Optional[datetime] = None
     title: str
     description: Optional[str] = None
-    category: Optional[str] = None
+    series_id: Optional[int] = None
     # status: "open" | "locked" | "resolved" | "cancelled"
     status: str = "open"
     opens_at: Optional[datetime] = None
@@ -37,7 +37,7 @@ class EventWithOutcomes(Event):
 class CreateEventRequest(BaseModel):
     title: str
     description: Optional[str] = None
-    category: Optional[str] = None
+    series_id: Optional[int] = None
     opens_at: Optional[datetime] = None
     locks_at: Optional[datetime] = None
     fee_bps: int = 200

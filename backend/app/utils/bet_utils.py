@@ -9,11 +9,13 @@ def get_outcomes_for_event(event_id: int) -> list[EventOutcome]:
     res = supabase.table("event_outcomes").select("*").eq("event_id", event_id).execute()
     return [EventOutcome(**row) for row in res.data]
 
-def get_events(status: str | None = None, limit: int = 20, offset: int = 0) -> list[Event]:
+def get_events(status: str | None = None, series_id: int | None = None, limit: int = 20, offset: int = 0) -> list[Event]:
     supabase = next(get_supabase())
     query = supabase.table("events").select("*").order("created_at", desc=True).range(offset, offset + limit - 1)
     if status:
         query = query.eq("status", status)
+    if series_id:
+        query = query.eq("series_id", series_id)
     res = query.execute()
     return [Event(**row) for row in res.data]
 

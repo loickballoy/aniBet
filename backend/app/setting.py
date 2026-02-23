@@ -2,6 +2,15 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 
+TIERS = [
+        {"name": "Iron",    "min": 0,      "max": 9999},
+        {"name": "Bronze",  "min": 1000,   "max": 19999},
+        {"name": "Silver",  "min": 20000,  "max": 39999},
+        {"name": "Gold",    "min": 40000,  "max": 99999},
+        {"name": "Diamond", "min": 100000, "max": None},
+    ]
+
+
 load_dotenv()
 
 # Load environment variables from .env file

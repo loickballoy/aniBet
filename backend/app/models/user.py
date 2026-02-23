@@ -11,3 +11,9 @@ class User(BaseModel):
 
 class UserInDB(User):
     password_hash: str
+
+class UserInLeaderboard(BaseModel):
+    rank: int | None = None
+    tier: str | None = None
+    points_balance: int
+    username: str 
