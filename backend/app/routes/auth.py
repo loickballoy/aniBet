@@ -62,7 +62,7 @@ async def auth_google(request: Request, db: db_dependency):
     return RedirectResponse(f"{FRONTEND_URL}/auth?access_token={access_token}&refresh_token={refresh_token}")
 
 
-@AuthRouter.post('/auth/signup', tags=["auth"])
+@AuthRouter.post('/signup', tags=["auth"])
 async def signup(user: UserInDB) -> dict[str, Any]:
     """
 
