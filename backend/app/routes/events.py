@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, status
 
 import app.utils.bet_utils as bet_utils
 import app.utils.auth_utils as auth_utils
+import app.utils.trending_utils as trending_utils
 from app.models.event import *
 from app.utils.auth_utils import user_dependency
 from app.db import get_supabase
@@ -11,6 +12,16 @@ EventRouter = APIRouter(
     prefix="/events",
     tags=["events"]
 )
+
+@EventRouter.get('/trending', response_model=list[EventWithOutcomes])
+async def get_trending_events():
+    """
+    Returns the top trending open events scored by pool_total and bet count.
+    Also resets and reassigns the 'carousel' tag.
+    Admin-pinned events (admin_carousel tag) are always included and never reset.
+    Called automatically every week via Vercel Cron.
+    """
+    return trending_utils.get_trending_events()
 
 @EventRouter.get('/', response_model=list[EventWithOutcomes])
 async def list_events(status: str | None = None, series_id: int | None = None, limit: int = 20, offset: int = 0):
@@ -99,3 +110,35 @@ async def lock_event(event_id: int, current_user: user_dependency):
     supabase.table("events").update({"status": "locked"}).eq("id", event_id).execute()
     return {"message": "Event locked"}
 
+@EventRouter.post("/{event_id}/admin-carousel", status_code=status.HTTP_201_CREATED)
+async def add_to_admin_carousel(event_id: int, current_user: user_dependency):
+    """
+    Manually pin an event to the carousel with the admin_carousel tag.
+    These events are always displayed in the carousel and are never auto-removed by the trending cron.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+
+    event = bet_utils.get_event_by_id(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    if trending_utils.has_admin_carousel_tag(event_id):
+        raise HTTPException(status_code=409, detail="Event is already pinned to admin carousel")
+
+    trending_utils.add_admin_carousel(event_id)
+    return {"message": f"Event {event_id} pinned to admin carousel"}
+
+
+@EventRouter.delete("/{event_id}/admin-carousel", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_from_admin_carousel(event_id: int, current_user: user_dependency):
+    """
+    Unpin an event from the admin carousel.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+
+    if not trending_utils.has_admin_carousel_tag(event_id):
+        raise HTTPException(status_code=404, detail="Event is not in admin carousel")
+
+    trending_utils.remove_admin_carousel(event_id)

@@ -21,3 +21,6 @@ class GoogleUser(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+class ChangeUsernameRequest(BaseModel):
+    new_username: str
