@@ -1,7 +1,5 @@
 from starlette.middleware.sessions import SessionMiddleware
-
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPBearer
@@ -12,10 +10,21 @@ from app.routes.bets import BetsRouter
 from app.routes.ranking import RankRouter
 from app.routes.series import SeriesRouter
 from app.routes.bingo import BingoRouter
+from app.routes.transactions import TransactionRouter
+from app.setting import settings
 
 app = FastAPI()
 
 app.add_middleware(SessionMiddleware, secret_key="MYKEY32")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url],  # ex: "https://anibet.vercel.app"
+    allow_credentials=True,                 # required for cookies
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 bearer_scheme = HTTPBearer
 
 def custom_openapi():
@@ -46,3 +55,4 @@ app.include_router(BetsRouter)
 app.include_router(RankRouter)
 app.include_router(SeriesRouter)
 app.include_router(BingoRouter)
+app.include_router(TransactionRouter)
