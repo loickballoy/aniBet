@@ -22,6 +22,8 @@ export function SiteHeader() {
     }
   }, [pathname])
 
+  const inBingo = (pathname || "").startsWith("/bingo")
+
   function logout() {
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
@@ -61,7 +63,7 @@ export function SiteHeader() {
             </>
           )}
         </div>
-      </div>
-    </header>
+      </header>
+    </>
   )
 }
