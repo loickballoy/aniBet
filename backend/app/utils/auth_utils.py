@@ -170,5 +170,8 @@ def create_user_from_google_info(google_user: GoogleUser):
         response = supabase.table('User').insert(new_user.model_dump()).execute()
         return new_user
 
+def change_username(new_username, old_username):
+    supabase = next(get_supabase())
+    supabase.table("User").update({"username": new_username}).eq("username", old_username).execute()
 
 user_dependency = Annotated[dict, Depends(get_current_user)]
