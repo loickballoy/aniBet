@@ -15,7 +15,7 @@ from app.setting import settings
 from app.utils import auth_utils, db_utils
 from app.db import db_dependency
 from app.validators import *
-from app.validators.validators import GoogleUser, Token, RefreshTokenRequest
+from app.validators.validators import GoogleUser, Token, RefreshTokenRequest, ChangeUsernameRequest
 
 AuthRouter = APIRouter(
     prefix="/auth",
@@ -59,7 +59,7 @@ async def auth_google(request: Request, db: db_dependency):
     access_token = auth_utils.create_access_token(user.username, auth_utils.get_user_id(user.username), timedelta(days=7))
     refresh_token = auth_utils.create_refresh_token(user.username, auth_utils.get_user_id(user.username), timedelta(days=14))
 
-    return RedirectResponse(f"{FRONTEND_URL}/auth?access_token={access_token}&refresh_token={refresh_token}")
+    return RedirectResponse(f"http://localhost:3000/auth?access_token={access_token}&refresh_token={refresh_token}")
 
 
 @AuthRouter.post('/signup', tags=["auth"])
@@ -122,3 +122,13 @@ async def refresh_access_token(refresh_token_request: RefreshTokenRequest):
     new_refresh_token = auth_utils.create_refresh_token(payload["sub"], payload["id"], timedelta(days=14))
 
     return {"access_token": access_token, "refresh_token": new_refresh_token, "token_type": "bearer"}
+
+@AuthRouter.patch("/change-username")
+async def change_username(request: ChangeUsernameRequest, current_user: auth_utils.user_dependency):
+    existing = auth_utils.get_user_by_username(request.new_username)
+    if existing:
+        raise HTTPException(status_code=409, detail="Username already taken")
+
+    auth_utils.change_username(request.new_username, current_user.username)
+    
+    return {"message": "Username updated successfully"}
