@@ -263,7 +263,7 @@ export default function ProfilePage() {
   const [error, setError] = React.useState<string | null>(null)
   const [token, setToken] = React.useState<string>("")
 
-  const API = process.env.NEXT_PUBLIC_API_URL
+  const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
   React.useEffect(() => {
     const t = localStorage.getItem("access_token")

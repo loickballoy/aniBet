@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { Suspense } from "react"
 import Link from "next/link"
 
 type Tab = "login" | "signup"
@@ -56,7 +57,7 @@ function Particles() {
   )
 }
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get("next") || "/"
@@ -328,5 +329,13 @@ function ErrorBox({ msg }: { msg: string }) {
     <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-[11px] text-red-400">
       {msg}
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   )
 }
