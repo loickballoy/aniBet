@@ -7,6 +7,7 @@ class User(BaseModel):
     role: str
     is_banned: bool = False
     points_balance: int = 10000
+    pfp_url: str | None = None
     
 
 class UserInDB(User):
@@ -17,3 +18,4 @@ class UserInLeaderboard(BaseModel):
     tier: str | None = None
     points_balance: int
     username: str 
+

@@ -18,6 +18,7 @@ class BingoItem(BaseModel):
     created_at: Optional[datetime] = None
     card_id: int
     description: str
+    cover_url: Optional[str] = None
     did_happen: Optional[bool] = None
 
 class BingoEntry(BaseModel):
@@ -35,6 +36,7 @@ class CreateBingoCardRequest(BaseModel):
     chapter_number: Optional[int] = None
     opens_at: datetime
     closes_at: datetime
+    cover_url: Optional[str] = None
     items: list[str]
 
 class SubmitBingoEntryRequest(BaseModel):

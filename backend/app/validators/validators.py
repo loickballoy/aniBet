@@ -24,3 +24,6 @@ class RefreshTokenRequest(BaseModel):
 
 class ChangeUsernameRequest(BaseModel):
     new_username: str
+
+class ChangeAvatarRequest(BaseModel):
+    pfp_url: str

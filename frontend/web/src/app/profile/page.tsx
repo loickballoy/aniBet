@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
+import { AvatarUpload } from "@/components/ui/AvatarUpload"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type User = {
@@ -11,6 +12,7 @@ type User = {
   role: string
   points_balance: number
   is_banned: boolean
+  pfp_url?: string | null
 }
 
 type Transaction = {
@@ -180,14 +182,16 @@ export default function ProfilePage() {
   const [rank, setRank] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [token, setToken] = React.useState<string>("")
 
   const API = process.env.NEXT_PUBLIC_API_URL
 
   React.useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    if (!token) { setError("Non connecté."); setLoading(false); return }
+    const t = localStorage.getItem("access_token")
+    if (!t) { setError("Non connecté."); setLoading(false); return }
+    setToken(t)
 
-    const h = { Authorization: `Bearer ${token}`, Accept: "application/json" }
+    const h = { Authorization: `Bearer ${t}`, Accept: "application/json" }
 
     Promise.all([
       fetch("/api/me", { headers: h }).then((r) => r.json()),
@@ -251,7 +255,13 @@ export default function ProfilePage() {
           <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/8 blur-3xl" />
 
           <div className="relative flex flex-wrap items-center gap-5">
-            <Avatar username={user.username} size={72} />
+            <AvatarUpload
+              username={user.username}
+              currentUrl={user.pfp_url}
+              token={token}
+              API={API}
+              onSaved={(url) => setUser({ ...user, pfp_url: url })}
+            />
 
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
