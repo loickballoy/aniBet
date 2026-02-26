@@ -96,12 +96,12 @@ export function SiteHeader() {
                   Admin
                 </Link>
               )}
-              <Link
+              {/*<Link
                 href="/profile"
                 className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted transition"
               >
                 Profil
-              </Link>
+              </Link>*/}
               <button
                 onClick={logout}
                 className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted transition"
