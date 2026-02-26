@@ -223,9 +223,6 @@ function Podium({ rows }: { rows: Row[] }) {
                   width: cfg.avatarSize,
                   height: cfg.avatarSize,
                   fontSize: cfg.avatarSize * 0.38,
-                  ringColor: isFirst
-                    ? "rgba(250,204,21,0.4)"
-                    : "rgba(99,102,241,0.25)",
                   boxShadow: isFirst
                     ? "0 0 20px rgba(250,204,21,0.15), 0 0 0 2px rgba(250,204,21,0.3)"
                     : "0 0 0 2px rgba(99,102,241,0.2)",
