@@ -11,6 +11,7 @@ class BingoCard(BaseModel):
     opens_at: datetime
     closes_at: datetime
     status: str = "open"
+    cover_url: Optional[str] = None
     created_by: Optional[int] = None
 
 class BingoItem(BaseModel):
@@ -18,7 +19,6 @@ class BingoItem(BaseModel):
     created_at: Optional[datetime] = None
     card_id: int
     description: str
-    cover_url: Optional[str] = None
     did_happen: Optional[bool] = None
 
 class BingoEntry(BaseModel):

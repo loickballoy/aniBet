@@ -73,7 +73,7 @@ const STATUS_STYLE: Record<string, string> = {
   refunded: "bg-blue-500/15 text-blue-400 border-blue-500/30",
 }
 
-// ── Mini SVG line chart ────────────────────────────────────────────────────────
+// ── Balance chart ─────────────────────────────────────────────────────────────
 function BalanceChart({ data }: { data: Transaction[] }) {
   if (data.length < 2) {
     return (
@@ -83,10 +83,7 @@ function BalanceChart({ data }: { data: Transaction[] }) {
     )
   }
 
-  const W = 600
-  const H = 120
-  const PAD = 8
-
+  const W = 600, H = 120, PAD = 8
   const values = data.map((d) => d.balance_after)
   const min = Math.min(...values)
   const max = Math.max(...values)
@@ -98,42 +95,28 @@ function BalanceChart({ data }: { data: Transaction[] }) {
     return `${x},${y}`
   })
 
-  const firstY = H - PAD - ((values[0] - min) / range) * (H - PAD * 2)
   const lastY = H - PAD - ((values[values.length - 1] - min) / range) * (H - PAD * 2)
-  const lastX = PAD + ((data.length - 1) / (data.length - 1)) * (W - PAD * 2)
-
+  const lastX = PAD + (W - PAD * 2)
   const isUp = values[values.length - 1] >= values[0]
   const lineColor = isUp ? "#10b981" : "#f87171"
-  const fillId = "chartFill"
-
   const areaPath = `M ${PAD},${H - PAD} L ${pts.join(" L ")} L ${lastX},${H - PAD} Z`
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "100%" }} preserveAspectRatio="none">
       <defs>
-        <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={lineColor} stopOpacity="0.25" />
           <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
         </linearGradient>
       </defs>
-      {/* Area fill */}
-      <path d={areaPath} fill={`url(#${fillId})`} />
-      {/* Line */}
-      <polyline
-        points={pts.join(" ")}
-        fill="none"
-        stroke={lineColor}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Last dot */}
+      <path d={areaPath} fill="url(#chartFill)" />
+      <polyline points={pts.join(" ")} fill="none" stroke={lineColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx={lastX} cy={lastY} r="4" fill={lineColor} />
     </svg>
   )
 }
 
-// ── Tier badge ────────────────────────────────────────────────────────────────
+// ── Tiers ─────────────────────────────────────────────────────────────────────
 const TIERS = [
   { name: "Iron",    min: 0,      color: "text-zinc-400",   bg: "bg-zinc-500/15 border-zinc-500/30" },
   { name: "Bronze",  min: 1000,   color: "text-amber-600",  bg: "bg-amber-600/15 border-amber-600/30" },
@@ -149,19 +132,6 @@ function getTier(pts: number) {
   return TIERS[0]
 }
 
-// ── Avatar placeholder ────────────────────────────────────────────────────────
-function Avatar({ username, size = 64 }: { username: string; size?: number }) {
-  const letter = username?.[0]?.toUpperCase() ?? "?"
-  return (
-    <div
-      className="flex shrink-0 items-center justify-center rounded-full bg-primary/20 font-bold text-primary ring-2 ring-primary/30"
-      style={{ width: size, height: size, fontSize: size * 0.4 }}
-    >
-      {letter}
-    </div>
-  )
-}
-
 // ── Stat card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -169,6 +139,115 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
       <div className="text-[11px] text-muted-foreground">{label}</div>
       <div className="mt-1 text-xl font-bold">{value}</div>
       {sub && <div className="mt-0.5 text-[11px] text-muted-foreground">{sub}</div>}
+    </div>
+  )
+}
+
+// ── Username editor ───────────────────────────────────────────────────────────
+function UsernameEditor({
+  username,
+  token,
+  API,
+  onSaved,
+}: {
+  username: string
+  token: string
+  API: string | undefined
+  onSaved: (newUsername: string) => void
+}) {
+  const [editing, setEditing] = React.useState(false)
+  const [value, setValue] = React.useState(username)
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  async function save() {
+    const trimmed = value.trim()
+    if (!trimmed || trimmed === username) { setEditing(false); return }
+    if (trimmed.length < 3) { setError("3 caractères minimum"); return }
+    if (trimmed.length > 24) { setError("24 caractères maximum"); return }
+    if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) { setError("Lettres, chiffres, _ et - uniquement"); return }
+
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`${API}/auth/change-username`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ username: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.detail ?? `Erreur ${res.status}`)
+      onSaved(trimmed)
+      setEditing(false)
+    } catch (e: any) {
+      setError(e?.message ?? "Erreur inconnue")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function cancel() {
+    setValue(username)
+    setError(null)
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <h1 className="text-2xl font-bold tracking-tight">{username}</h1>
+        <button
+          onClick={() => { setValue(username); setEditing(true) }}
+          title="Modifier le pseudo"
+          className="flex h-6 w-6 items-center justify-center rounded-lg border border-border/50 bg-background/30 text-muted-foreground transition hover:border-border hover:text-foreground"
+        >
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <path d="M8.5 1.5L10.5 3.5L4 10H2V8L8.5 1.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => { setValue(e.target.value); setError(null) }}
+          onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel() }}
+          maxLength={24}
+          className="h-9 w-44 rounded-xl border border-primary/40 bg-background/50 px-3 text-base font-bold tracking-tight outline-none ring-1 ring-primary/20 transition focus:ring-primary/50"
+        />
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+        >
+          {saving
+            ? <span className="h-3 w-3 animate-spin rounded-full border border-primary-foreground border-t-transparent" />
+            : "✓"}
+        </button>
+        <button
+          onClick={cancel}
+          className="flex h-9 items-center rounded-xl border border-border/50 bg-background/30 px-3 text-xs text-muted-foreground transition hover:border-border hover:text-foreground"
+        >
+          ✕
+        </button>
+      </div>
+      {error
+        ? <p className="text-[11px] text-red-400">{error}</p>
+        : <p className="text-[11px] text-muted-foreground/50">↵ confirmer · Échap annuler</p>
+      }
     </div>
   )
 }
@@ -240,8 +319,6 @@ export default function ProfilePage() {
   const firstBalance = transactions[0]?.balance_after ?? 0
   const pnl = lastBalance - firstBalance
   const isUp = pnl >= 0
-
-  // Recent 20 transactions for the chart
   const chartData = transactions.slice(-40)
 
   return (
@@ -251,7 +328,6 @@ export default function ProfilePage() {
 
         {/* ── Hero card ── */}
         <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-card/60 p-6 backdrop-blur-sm">
-          {/* Decorative glow */}
           <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/8 blur-3xl" />
 
           <div className="relative flex flex-wrap items-center gap-5">
@@ -265,7 +341,13 @@ export default function ProfilePage() {
 
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-bold tracking-tight">{user.username}</h1>
+                {/* ← Username with inline edit button */}
+                <UsernameEditor
+                  username={user.username}
+                  token={token}
+                  API={API}
+                  onSaved={(newUsername) => setUser({ ...user, username: newUsername })}
+                />
                 <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${tier.bg} ${tier.color}`}>
                   {tier.name}
                 </span>
@@ -292,26 +374,10 @@ export default function ProfilePage() {
 
         {/* ── Stats row ── */}
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard
-            label="Winrate"
-            value={winrate?.winrate != null ? `${winrate.winrate}%` : "—"}
-            sub={winrate ? `${winrate.won}W / ${winrate.lost}L` : undefined}
-          />
-          <StatCard
-            label="Paris totaux"
-            value={String(winrate?.total ?? 0)}
-            sub="résolus"
-          />
-          <StatCard
-            label="P&L net"
-            value={`${isUp ? "+" : ""}${formatPts(pnl)}`}
-            sub="depuis le début"
-          />
-          <StatCard
-            label="Transactions"
-            value={String(transactions.length)}
-            sub="au total"
-          />
+          <StatCard label="Winrate" value={winrate?.winrate != null ? `${winrate.winrate}%` : "—"} sub={winrate ? `${winrate.won}W / ${winrate.lost}L` : undefined} />
+          <StatCard label="Paris totaux" value={String(winrate?.total ?? 0)} sub="résolus" />
+          <StatCard label="P&L net" value={`${isUp ? "+" : ""}${formatPts(pnl)}`} sub="depuis le début" />
+          <StatCard label="Transactions" value={String(transactions.length)} sub="au total" />
         </div>
 
         {/* ── Balance chart ── */}
@@ -333,23 +399,21 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* ── Bets + Transactions side by side ── */}
+        {/* ── Bets + Transactions ── */}
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-
-          {/* Bets history */}
           <div className="rounded-2xl border border-border/60 bg-card/60 p-5">
             <h2 className="mb-3 text-sm font-semibold">Historique des paris</h2>
             {bets.length === 0 ? (
               <p className="text-xs text-muted-foreground">Aucun pari pour l'instant.</p>
             ) : (
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {bets.slice().reverse().map((bet) => (
                   <div key={bet.id} className="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/30 p-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium">{bet.event_title ?? "Event inconnu"}</p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{bet.outcome_label ?? "—"}</p>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="shrink-0 text-right">
                       <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLE[bet.status] ?? ""}`}>
                         {bet.status}
                       </span>
@@ -361,13 +425,12 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {/* Transactions */}
           <div className="rounded-2xl border border-border/60 bg-card/60 p-5">
             <h2 className="mb-3 text-sm font-semibold">Dernières transactions</h2>
             {transactions.length === 0 ? (
               <p className="text-xs text-muted-foreground">Aucune transaction.</p>
             ) : (
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {transactions.slice().reverse().slice(0, 20).map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-background/30 p-3">
                     <div>

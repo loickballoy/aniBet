@@ -17,7 +17,7 @@ def get_leaderboard(limit, offset):
 
 def get_user_rank(current_user: user_dependency):
     supabase = next(get_supabase())
-    res = supabase.table("User").select("id", count="exact").gt("points_balance", current_user.points_balance).execute()
+    res = supabase.table("User").select("id", count="exact").neq("role", "admin").gt("points_balance", current_user.points_balance).execute()
     return res.count+1
 
 def get_tier(points_balance: int):
