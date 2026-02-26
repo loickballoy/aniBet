@@ -7,6 +7,7 @@ export type Market = {
     volumeText?: string // ex: "$1M Vol."
     endDateText?: string // optionnel
     featured?: boolean
+    outcomes?: { id: number; label: string; poolPoints: number }[]
   }
   
   export const featuredMarkets: Market[] = [
