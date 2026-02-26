@@ -48,7 +48,7 @@ export function AvatarUpload({ username, currentUrl, token, API, onSaved }: Prop
       const res = await fetch(`${API}/auth/change-avatar`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ avatar_url: publicUrl }),
+        body: JSON.stringify({ pfp_url: publicUrl }),
       })
       if (!res.ok) throw new Error((await res.json())?.detail ?? "Erreur backend")
 

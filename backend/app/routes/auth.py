@@ -59,7 +59,7 @@ async def auth_google(request: Request, db: db_dependency):
     access_token = auth_utils.create_access_token(user.username, auth_utils.get_user_id(user.username), timedelta(days=7))
     refresh_token = auth_utils.create_refresh_token(user.username, auth_utils.get_user_id(user.username), timedelta(days=14))
 
-    return RedirectResponse(f"http://localhost:3000/auth?access_token={access_token}&refresh_token={refresh_token}")
+    return RedirectResponse(f"{settings.frontend_url}/auth?access_token={access_token}&refresh_token={refresh_token}")
 
 
 @AuthRouter.post('/signup', tags=["auth"])
@@ -152,5 +152,5 @@ async def change_avatar(
 ):
     auth_utils.update_avatar(request.pfp_url, current_user.email)
     
-    return {"message": "Avatar mis à jour", "avatar_url": request.avatar_url}
+    return {"message": "Avatar mis à jour", "pfp_url": request.pfp_url}
 

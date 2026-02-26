@@ -1,6 +1,7 @@
 import { HeroCarousel } from "@/components/ui/home/HeroCarousel"
 import { MarketCard } from "@/components/ui/market/MarketCard"
 import { SeriesStrip } from "@/components/ui/home/SeriesStrip"
+import { FadeIn } from "@/components/ui/FadeIn"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import { Suspense } from "react"
@@ -19,7 +20,7 @@ type EventWithOutcomes = {
   status: string
   series_id: number | null
   pool_total?: number | null
-  cover_url?: string | null   // ← event's own cover
+  cover_url?: string | null
   outcomes: OutcomeRow[]
 }
 
@@ -84,7 +85,6 @@ export default async function HomePage({
     return {
       id: String(e.id),
       question: e.title,
-      // event cover takes priority, fallback to series cover
       imageUrl: e.cover_url ?? s?.cover_url ?? undefined,
       category: s?.name ?? undefined,
       yesPct,
@@ -100,14 +100,24 @@ export default async function HomePage({
       <SiteHeader />
 
       <main className="mx-auto w-full max-w-6xl px-4 py-6">
-        {!seriesId && <HeroCarousel items={featured} />}
 
-        <Suspense>
-          <SeriesStrip series={series} />
-        </Suspense>
+        {/* Hero — first to appear */}
+        {!seriesId && (
+          <FadeIn delay={0} from="bottom">
+            <HeroCarousel items={featured} />
+          </FadeIn>
+        )}
 
-        <div className="mt-10">
-          <div className="mb-4 flex items-end justify-between">
+        {/* Series strip */}
+        <FadeIn delay={120} from="bottom">
+          <Suspense>
+            <SeriesStrip series={series} />
+          </Suspense>
+        </FadeIn>
+
+        {/* Markets header */}
+        <FadeIn delay={220} from="bottom">
+          <div className="mt-10 mb-4 flex items-end justify-between">
             <div className="flex items-center gap-3">
               <h3 className="text-lg font-semibold">
                 {activeSeries ? activeSeries.name : "Marchés ouverts"}
@@ -122,8 +132,11 @@ export default async function HomePage({
               Tout voir
             </Link>
           </div>
+        </FadeIn>
 
-          {markets.length === 0 ? (
+        {/* Markets grid */}
+        {markets.length === 0 ? (
+          <FadeIn delay={280} from="bottom">
             <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-2xl border border-border/50 bg-card/40">
               <p className="text-sm text-muted-foreground">
                 {activeSeries
@@ -136,14 +149,17 @@ export default async function HomePage({
                 </Link>
               )}
             </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {markets.map((m) => (
-                <MarketCard key={m.id} market={m} />
-              ))}
-            </div>
-          )}
-        </div>
+          </FadeIn>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {markets.map((m, i) => (
+              <FadeIn key={m.id} delay={280 + i * 35} from="bottom">
+                <MarketCard market={m} />
+              </FadeIn>
+            ))}
+          </div>
+        )}
+
       </main>
     </>
   )

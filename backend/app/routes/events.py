@@ -36,8 +36,7 @@ async def list_events(status: str | None = None, series_id: int | None = None, l
 @EventRouter.get('/{event_id}', response_model=EventWithOutcomes)
 async def get_event(event_id: int):
     """Get details of a specific event by ID, including its outcomes."""
-    events = bet_utils.get_event_by_id(event_id)
-    event = next((e for e in events if e.id == event_id), None)
+    event = bet_utils.get_event_by_id(event_id)
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
     outcomes = bet_utils.get_outcomes_for_event(event_id)
