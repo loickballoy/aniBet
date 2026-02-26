@@ -65,6 +65,7 @@ async def create_card(request: CreateBingoCardRequest, current_user: user_depend
         "chapter_number": request.chapter_number,
         "opens_at": request.opens_at.isoformat(),
         "closes_at": request.closes_at.isoformat(),
+        "cover_url": request.cover_url,
         "status": "open",
         "created_by": auth_utils.get_user_id(current_user.username)
     }).execute()

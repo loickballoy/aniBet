@@ -15,7 +15,7 @@ from app.setting import settings
 from app.utils import auth_utils, db_utils
 from app.db import db_dependency
 from app.validators import *
-from app.validators.validators import GoogleUser, Token, RefreshTokenRequest, ChangeUsernameRequest
+from app.validators.validators import GoogleUser, Token, RefreshTokenRequest, ChangeUsernameRequest, ChangeAvatarRequest
 
 AuthRouter = APIRouter(
     prefix="/auth",
@@ -144,3 +144,13 @@ async def change_username(request: ChangeUsernameRequest, current_user: auth_uti
     auth_utils.change_username(request.new_username, current_user.username)
     
     return {"message": "Username updated successfully"}
+
+@AuthRouter.patch("/change-avatar")
+async def change_avatar(
+    request: ChangeAvatarRequest,
+    current_user: auth_utils.user_dependency,
+):
+    auth_utils.update_avatar(request.pfp_url, current_user.email)
+    
+    return {"message": "Avatar mis à jour", "avatar_url": request.avatar_url}
+
