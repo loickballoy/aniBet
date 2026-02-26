@@ -13,3 +13,7 @@ class CreateSeriesRequest(BaseModel):
     name: str
     slug: str
     cover_url: Optional[str] = None
+
+class UpdateSeriesRequest(BaseModel):
+    name: Optional[str] = None
+    cover_url: Optional[str] = None

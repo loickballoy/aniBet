@@ -27,6 +27,7 @@ class Event(BaseModel):
     pool_total: int = 0
     # fee_bps: fee in basis points (e.g. 200 = 2%)
     fee_bps: int = 200
+    cover_url: Optional[str] = None 
     created_by: Optional[int] = None
 
 
@@ -42,6 +43,7 @@ class CreateEventRequest(BaseModel):
     locks_at: Optional[datetime] = None
     fee_bps: int = 200
     outcomes: list[str]  # list of outcome labels
+    cover_url: Optional[str] = None 
     tag_ids: list[int] = []
 
 

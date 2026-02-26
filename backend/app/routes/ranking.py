@@ -21,6 +21,6 @@ async def get_my_rank(current_user: user_dependency):
     user_rank = rank_utils.get_user_rank(current_user)
     return user_rank
 
-@RankRouter.get("leaderboard/tiers")
+@RankRouter.get("/leaderboard/tiers")
 async def get_tiers():
     return TIERS
