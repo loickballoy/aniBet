@@ -2,7 +2,9 @@ from app.setting import settings
 from supabase import create_client, Client
 from fastapi import Depends
 
-supabase : Client = create_client(settings.database_url, settings.database_key)
+supabase : Client = create_client(settings.database_url, settings.database_key, options=ClientOptions(
+        httpx_client=httpx.Client(http2=False)
+    ))
 
 from typing import Generator, Annotated
 
