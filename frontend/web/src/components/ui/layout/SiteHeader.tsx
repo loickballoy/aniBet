@@ -22,8 +22,6 @@ export function SiteHeader() {
     }
   }, [pathname])
 
-  const inBingo = (pathname || "").startsWith("/bingo")
-
   function logout() {
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
@@ -33,15 +31,35 @@ export function SiteHeader() {
     router.refresh()
   }
 
+  function navLink(href: string) {
+    const active = (pathname || "").startsWith(href)
+    return `rounded-xl px-3 py-2 text-sm transition ${
+      active
+        ? "bg-primary/10 text-primary font-medium"
+        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+    }`
+  }
+
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
-        <Link href="/" className="text-sm font-semibold">aniBet</Link>
+        <div className="flex items-center gap-1">
+          <Link href="/" className="mr-3 text-sm font-bold tracking-tight">aniBet</Link>
+          <nav className="hidden items-center gap-0.5 sm:flex">
+            <Link href="/bingo" className={navLink("/bingo")}>Bingo</Link>
+            <Link href="/leaderboard" className={navLink("/leaderboard")}>Leaderboard</Link>
+          </nav>
+        </div>
 
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:hidden">
+            <Link href="/bingo" className={navLink("/bingo")}>Bingo</Link>
+            <Link href="/leaderboard" className={navLink("/leaderboard")}>🏆</Link>
+          </div>
+
           {!hasToken ? (
             <Link href={`/login?next=${encodeURIComponent(pathname || "/")}`}
-              className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted">
+              className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted transition">
               Login
             </Link>
           ) : (
@@ -53,17 +71,17 @@ export function SiteHeader() {
                 </Link>
               )}
               <Link href="/profile"
-                className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted">
+                className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted transition">
                 Profil
               </Link>
               <button onClick={logout}
-                className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted">
+                className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted transition">
                 Logout
               </button>
             </>
           )}
         </div>
-      </header>
-    </>
+      </div>
+    </header>
   )
 }

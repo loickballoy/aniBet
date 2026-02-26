@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from app.models.series import Series, CreateSeriesRequest
+from app.models.series import Series, CreateSeriesRequest, UpdateSeriesRequest
 from app.utils.auth_utils import user_dependency
 from app.utils import series_utils
 
@@ -37,3 +37,17 @@ async def delete_series(series_id: int, current_user: user_dependency):
         raise HTTPException(status_code=404, detail="Series not found")
     series_utils.delete_series(series_id)
     return {"message": "Series deleted"}
+
+@SeriesRouter.patch("/{series_id}", response_model=Series)
+async def update_series(series_id: int, request: UpdateSeriesRequest, current_user: user_dependency):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    series = series_utils.get_series_by_id(series_id)
+    if not series:
+        raise HTTPException(status_code=404, detail="Series not found")
+    data = {k: v for k, v in request.model_dump().items() if v is not None}
+    if not data:
+        return series
+    supabase = next(get_supabase())
+    supabase.table("series").update(data).eq("id", series_id).execute()
+    return series_utils.get_series_by_id(series_id)

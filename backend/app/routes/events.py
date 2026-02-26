@@ -59,6 +59,7 @@ async def create_event(request: CreateEventRequest, current_user: user_dependenc
         "opens_at": request.opens_at.isoformat() if request.opens_at else None,
         "locks_at": request.locks_at.isoformat() if request.locks_at else None,
         "fee_bps": request.fee_bps,
+        "cover_url": request.cover_url,
         "status": "open",
         "pool_total": 0,
         "created_by": auth_utils.get_user_id(current_user.username),
