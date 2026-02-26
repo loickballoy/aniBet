@@ -48,6 +48,6 @@ async def update_series(series_id: int, request: UpdateSeriesRequest, current_us
     data = {k: v for k, v in request.model_dump().items() if v is not None}
     if not data:
         return series
-    supabase = next(get_supabase())
-    supabase.table("series").update(data).eq("id", series_id).execute()
+    series_utils.update_series(data, series_id)
+    
     return series_utils.get_series_by_id(series_id)

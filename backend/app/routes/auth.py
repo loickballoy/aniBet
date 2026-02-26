@@ -125,6 +125,18 @@ async def refresh_access_token(refresh_token_request: RefreshTokenRequest):
 
 @AuthRouter.patch("/change-username")
 async def change_username(request: ChangeUsernameRequest, current_user: auth_utils.user_dependency):
+    new_username = request.new_username.strip()
+
+    # Validation
+    if len(new_username) < 3:
+        raise HTTPException(status_code=400, detail="Username trop court (min 3 caractères)")
+    if len(new_username) > 24:
+        raise HTTPException(status_code=400, detail="Username trop long (max 24 caractères)")
+    import re
+    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', new_username):
+        raise HTTPException(status_code=400, detail="Caractères invalides (lettres, chiffres, _ - . uniquement)")
+
+
     existing = auth_utils.get_user_by_username(request.new_username)
     if existing:
         raise HTTPException(status_code=409, detail="Username already taken")

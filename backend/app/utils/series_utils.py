@@ -28,3 +28,7 @@ def create_series(name: str, slug: str, cover_url: str | None) -> Series:
 def delete_series(series_id):
     supabase = next(get_supabase())
     supabase.table("series").delete().eq("id", series_id).execute()
+
+def update_series(data, series_id):
+    supabase = next(get_supabase())
+    supabase.table("series").update(data).eq("id", series_id).execute()
