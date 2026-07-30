@@ -1,0 +1,27 @@
+name: Daily Timestamp Commit
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Runs every day at midnight UTC
+  workflow_dispatch: # Manual trigger option
+
+jobs:
+  commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update timestamp file
+        run: |
+          date -u +"%Y-%m-%d %H:%M:%S UTC" > last-updated.txt
+
+      - name: Commit changes
+        run: |
+          git config user.name "GitHub Action Bot"
+          git config user.email "actions@github.com"
+          git add last-updated.txt
+          git commit -m "chore: update timestamp $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
+
+      - name: Push changes
+        run: git push
