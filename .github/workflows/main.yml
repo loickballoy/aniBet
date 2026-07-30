@@ -1,9 +1,13 @@
 name: Daily Timestamp Commit
 
+# Give the workflow permission to write repository contents
+permissions:
+  contents: write
+
 on:
   schedule:
-    - cron: "0 0 * * *" # Runs every day at midnight UTC
-  workflow_dispatch: # Manual trigger option
+    - cron: "0 0 * * *"
+  workflow_dispatch:
 
 jobs:
   commit:
@@ -11,6 +15,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Update timestamp file
         run: |
@@ -24,4 +31,4 @@ jobs:
           git commit -m "chore: update timestamp $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
 
       - name: Push changes
-        run: git push
+        run: git push origin HEAD:${{ github.ref_name }}
