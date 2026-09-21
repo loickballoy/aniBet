@@ -24,6 +24,9 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
+# Distinct du SECRET_KEY (signature JWT) — pour ne pas invalider tous les
+# tokens émis si un jour on doit tourner le secret de session, et inversement.
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
 
 class Settings:
     database_url: str = DATABASE_URL
@@ -36,5 +39,6 @@ class Settings:
     frontend_url: str = FRONTEND_URL
 
     secret_key: str = SECRET_KEY
+    session_secret_key: str = SESSION_SECRET_KEY
 
 settings = Settings()

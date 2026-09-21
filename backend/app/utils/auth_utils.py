@@ -122,14 +122,18 @@ def decode_token(token):
 def get_current_user(token: Annotated[str, Depends(oauth_bearer)], db: db_dependency):
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=ALGORITHM)
-        googe_sub: str = payload.get("sub")
-        user_id: int = payload.get("id")
+        # Le payload contient "sub" (username, voir create_access_token) et
+        # "id" (user_id) — PAS de google_sub. L'ancienne version cherchait
+        # un utilisateur par google_sub == username, ce qui ne matche
+        # jamais ; elle retombait silencieusement sur user_id à chaque
+        # requête. On simplifie pour dire ce que le code fait vraiment.
+        user_id: int | None = payload.get("id")
 
-        user: User = get_user_by_google_sub(googe_sub)
+        if user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
+
+        user = get_user_by_id(user_id)
         if user is None:
-            user = get_user_by_id(user_id)
-
-        if googe_sub is None or user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
         return user
     except JWTError:

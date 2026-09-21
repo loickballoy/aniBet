@@ -13,7 +13,7 @@ class Token(BaseModel):
 
 
 class GoogleUser(BaseModel):
-    sub: int
+    sub: str  # opaque string per Google — pas garanti de tenir dans un int
     email: str
     name: str
     picture: str

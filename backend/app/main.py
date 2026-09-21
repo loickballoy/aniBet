@@ -15,7 +15,7 @@ from app.setting import settings
 
 app = FastAPI()
 
-app.add_middleware(SessionMiddleware, secret_key="MYKEY32")
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key)
 
 app.add_middleware(
     CORSMiddleware,

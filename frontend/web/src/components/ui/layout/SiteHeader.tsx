@@ -1,6 +1,5 @@
 "use client"
 import * as React from "react"
-import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { UserWidget } from "@/components/ui/layout/UserWidget"
@@ -46,24 +45,18 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-1">
 
-          {/* self-end + negative margin sur le Link lui-même pour que le bas du chibi touche la bordure */}
+          {/* Logo temporaire en texte seul — l'ancien logo (chibi Hakari, Jujutsu
+              Kaisen) a été retiré : utiliser un personnage sous licence comme
+              logo de marque est un risque de contrefaçon, pas juste une
+              question de style. À remplacer par un logo original/SVG maison
+              avant le lancement public. */}
           <Link
             href="/"
             className="flex items-center gap-2 self-end"
-            style={{ marginBottom: "-13px" }}
           >
-            
-            <span className="text-lg font-black tracking-tight mb-3">
+            <span className="text-lg font-black tracking-tight">
               ani<span className="text-primary">Bet</span>
             </span>
-
-            <Image
-              src="/Adobe Express - file.png"
-              alt="aniBet"
-              width={40}
-              height={40}
-              className="object-contain drop-shadow-lg"
-            />
           </Link>
 
           <nav className="hidden items-center gap-0.5 sm:flex">
