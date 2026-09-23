@@ -235,3 +235,59 @@ def resolve_event(event_id: int, winning_outcome_id: int, resolved_by: int, note
                 conn.rollback()
                 raise ValueError(str(e)) from e
         conn.commit()
+
+def mark_resolution(event_id: int, winning_outcome_id: int, resolved_by: int, evidence_url: str):
+    """
+    Appelle fn_mark_resolution() : vérifie que resolved_by est mod pour la
+    série de cet event, marque l'event "resolved_pending_dispute", marque
+    l'outcome gagnant, journalise avec la preuve. NE PAIE PERSONNE — c'est
+    finalize_payout() qui s'en charge, après la fenêtre de dispute.
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    'SELECT fn_mark_resolution(%s, %s, %s, %s)',
+                    (event_id, winning_outcome_id, resolved_by, evidence_url),
+                )
+            except Exception as e:
+                conn.rollback()
+                raise ValueError(str(e)) from e
+        conn.commit()
+
+
+def finalize_payout(event_id: int):
+    """
+    Appelle fn_finalize_payout() : paie tous les paris gagnants, marque les
+    perdants. Refuse si l'event n'est pas en "resolved_pending_dispute" ou
+    si une dispute est encore ouverte dessus.
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute('SELECT fn_finalize_payout(%s)', (event_id,))
+            except Exception as e:
+                conn.rollback()
+                raise ValueError(str(e)) from e
+        conn.commit()
+
+
+def raise_dispute(event_id: int, user_id: int, counter_evidence_url: str) -> int:
+    """
+    Appelle fn_raise_dispute() : passe l'event en "disputed", bloquant
+    finalize_payout() jusqu'à ce que le litige soit levé (résolution
+    manuelle par un owner/second reviewer, hors scope de cette fonction).
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    'SELECT fn_raise_dispute(%s, %s, %s)',
+                    (event_id, user_id, counter_evidence_url),
+                )
+                dispute_id = cur.fetchone()["fn_raise_dispute"]
+            except Exception as e:
+                conn.rollback()
+                raise ValueError(str(e)) from e
+        conn.commit()
+    return dispute_id

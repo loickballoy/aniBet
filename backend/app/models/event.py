@@ -49,4 +49,5 @@ class CreateEventRequest(BaseModel):
 
 class ResolveEventRequest(BaseModel):
     winning_outcome_id: int
+    evidence_url: str
     note: Optional[str] = None

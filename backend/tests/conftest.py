@@ -24,6 +24,7 @@ from pathlib import Path
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg.rows import dict_row
 
 MIGRATIONS_DIR = Path(__file__).parent.parent / "migrations"
 
@@ -110,3 +111,27 @@ def bettor_headers(client):
 def second_bettor_headers(client):
     token = _signup_and_login(client, "test_bettor2", "bettor2@test.local", "bettorpass123")
     return {"Authorization": f"Bearer {token}"}
+
+
+def _user_id_by_username(username: str) -> int:
+    """
+    Le modèle Pydantic User n'expose pas le champ `id` (voir models/user.py)
+    — /auth/get-user ne le renvoie donc jamais dans son JSON. Pour les tests
+    qui ont besoin d'un vrai user_id (ex: accorder un mod scope), on va le
+    chercher directement en base plutôt que de parser une réponse API qui
+    ne l'a jamais contenu.
+    """
+    with psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM "User" WHERE username = %s', (username,))
+            return cur.fetchone()["id"]
+
+
+@pytest.fixture(scope="session")
+def bettor_id(bettor_headers) -> int:
+    return _user_id_by_username("test_bettor")
+
+
+@pytest.fixture(scope="session")
+def second_bettor_id(second_bettor_headers) -> int:
+    return _user_id_by_username("test_bettor2")

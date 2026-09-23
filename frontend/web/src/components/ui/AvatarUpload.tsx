@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { supabase } from "@/lib/supabase-client"
 
 type Props = {
   username: string
@@ -11,61 +10,42 @@ type Props = {
   onSaved: (url: string) => void
 }
 
-type State = "idle" | "uploading" | "error"
-
 export function AvatarUpload({ username, currentUrl, token, API, onSaved }: Props) {
   const [preview, setPreview] = React.useState<string | null>(currentUrl ?? null)
-  const [state, setState] = React.useState<State>("idle")
+  const [urlInput, setUrlInput] = React.useState("")
+  const [saving, setSaving] = React.useState(false)
   const [errMsg, setErrMsg] = React.useState<string | null>(null)
-  const inputRef = React.useRef<HTMLInputElement>(null)
   const letter = username?.[0]?.toUpperCase() ?? "?"
 
   React.useEffect(() => { setPreview(currentUrl ?? null) }, [currentUrl])
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    // Instant local preview
-    setPreview(URL.createObjectURL(file))
-    setState("uploading")
+  async function saveUrl(url: string) {
+    if (!url.trim()) return
+    setSaving(true)
     setErrMsg(null)
-
     try {
-      const ext  = file.name.split(".").pop() ?? "jpg"
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(path, file, { upsert: true, contentType: file.type })
-
-      if (uploadError) throw uploadError
-
-      const { data } = supabase.storage.from("avatars").getPublicUrl(path)
-      const publicUrl = data.publicUrl
-
-      // Persist to backend
       const res = await fetch(`${API}/auth/change-avatar`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ pfp_url: publicUrl }),
+        body: JSON.stringify({ pfp_url: url.trim() }),
       })
       if (!res.ok) throw new Error((await res.json())?.detail ?? "Erreur backend")
 
-      setPreview(publicUrl)
-      setState("idle")
-      onSaved(publicUrl)
-    } catch (err: any) {
-      setState("error")
-      setErrMsg(err?.message ?? "Upload échoué")
-      setPreview(currentUrl ?? null)
+      setPreview(url.trim())
+      setUrlInput("")
+      onSaved(url.trim())
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Échec de la mise à jour"
+      setErrMsg(message)
+    } finally {
+      setSaving(false)
     }
   }
 
   return (
-    <div className="group relative" style={{ width: 72, height: 72 }}>
+    <div className="flex items-center gap-3">
       {/* Avatar circle */}
-      <div className="h-full w-full overflow-hidden rounded-full ring-2 ring-primary/30">
+      <div className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-full ring-2 ring-primary/30">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={preview} alt="" className="h-full w-full object-cover" />
@@ -76,40 +56,33 @@ export function AvatarUpload({ username, currentUrl, token, API, onSaved }: Prop
         )}
       </div>
 
-      {/* Hover overlay with camera icon */}
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={state === "uploading"}
-        className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 rounded-full bg-black/0 opacity-0 transition-all group-hover:bg-black/50 group-hover:opacity-100 disabled:cursor-wait"
-      >
-        {state === "uploading" ? (
-          <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-        ) : (
-          <>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-white">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="2"/>
-            </svg>
-            <span className="text-[9px] font-semibold text-white">Modifier</span>
-          </>
-        )}
-      </button>
-
-      {/* Error tooltip */}
-      {state === "error" && errMsg && (
-        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-red-500/90 px-2 py-0.5 text-[10px] text-white shadow">
-          {errMsg}
+      {/* URL input — l'upload de fichier direct dépendait de Supabase Storage,
+          retiré (compte perdu). Solution provisoire en attendant une vraie
+          solution de stockage de fichiers pour le déploiement. */}
+      <div className="flex-1">
+        <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+          Colle une URL d&apos;image
+        </label>
+        <div className="flex gap-1.5">
+          <input
+            className="h-8 flex-1 rounded-lg border border-border/60 bg-background/30 px-2.5 text-[11px] outline-none transition focus:border-primary/40"
+            placeholder="https://…"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            disabled={saving}
+            onKeyDown={(e) => { if (e.key === "Enter") saveUrl(urlInput) }}
+          />
+          <button
+            type="button"
+            onClick={() => saveUrl(urlInput)}
+            disabled={saving || !urlInput.trim()}
+            className="rounded-lg bg-primary px-2.5 text-[11px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "…" : "OK"}
+          </button>
         </div>
-      )}
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        className="hidden"
-        onChange={handleFile}
-      />
+        {errMsg && <p className="mt-1 text-[10px] text-red-400">{errMsg}</p>}
+      </div>
     </div>
   )
 }

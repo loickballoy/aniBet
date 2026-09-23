@@ -4,9 +4,12 @@ from app.models.event import (
     Event, EventOutcome, EventWithOutcomes,
     CreateEventRequest, ResolveEventRequest,
 )
+from app.models.moderation import RaiseDisputeRequest
+
 from app.utils import auth_utils
 from app.utils import bet_utils
 from app.utils import trending_utils
+from app.utils import moderation_utils
 
 user_dependency = auth_utils.user_dependency
 
@@ -62,29 +65,66 @@ async def create_event(request: CreateEventRequest, current_user: user_dependenc
 
     return EventWithOutcomes(**event.model_dump(), outcomes=outcomes)
 
-
 @EventRouter.post("/{event_id}/resolve", status_code=status.HTTP_200_OK)
 async def resolve_event(event_id: int, request: ResolveEventRequest, current_user: user_dependency):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
-
     event = bet_utils.get_event_by_id(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event.status == "resolved":
-        raise HTTPException(status_code=400, detail="Event already resolved")
+
+    is_authorized = (
+        current_user.role in ("admin", "owner")
+        or moderation_utils.is_mod_for_series(auth_utils.get_user_id(current_user.username), event.series_id)
+    )
+    if not is_authorized:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a mod for this event's series")
+
+    if event.status not in ("open", "locked"):
+        raise HTTPException(status_code=400, detail=f"Event cannot be resolved (status: {event.status})")
 
     outcome = bet_utils.get_outcome_by_id(request.winning_outcome_id)
     if not outcome or outcome.event_id != event_id:
         raise HTTPException(status_code=400, detail="Outcome does not belong to this event")
 
     try:
-        bet_utils.resolve_event(event_id, request.winning_outcome_id, auth_utils.get_user_id(current_user.username), request.note)
+        bet_utils.mark_resolution(
+            event_id, request.winning_outcome_id,
+            auth_utils.get_user_id(current_user.username), request.evidence_url,
+        )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    return {"message": "Event resolved successfully"}
+    return {"message": "Event resolved, dispute window open"}
 
+@EventRouter.post("/{event_id}/dispute", status_code=status.HTTP_201_CREATED)
+async def dispute_event(event_id: int, request: RaiseDisputeRequest, current_user: user_dependency):
+    try:
+        dispute_id = bet_utils.raise_dispute(
+            event_id, auth_utils.get_user_id(current_user.username), request.counter_evidence_url,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"dispute_id": dispute_id}
+
+
+@EventRouter.post("/{event_id}/finalize-payout", status_code=status.HTTP_200_OK)
+async def finalize_payout(event_id: int, current_user: user_dependency):
+    event = bet_utils.get_event_by_id(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    is_authorized = (
+        current_user.role in ("admin", "owner")
+        or moderation_utils.is_mod_for_series(auth_utils.get_user_id(current_user.username), event.series_id)
+    )
+    if not is_authorized:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a mod for this event's series")
+
+    try:
+        bet_utils.finalize_payout(event_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    return {"message": "Payout finalized"}
 
 @EventRouter.patch("/{event_id}/lock", status_code=status.HTTP_200_OK)
 async def lock_event(event_id: int, current_user: user_dependency):

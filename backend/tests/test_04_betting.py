@@ -62,7 +62,7 @@ def test_non_admin_cannot_resolve_event(client, bettor_headers):
     outcome_yes = next(o for o in event["outcomes"] if o["outcome"] == "Oui")
 
     resp = client.post(f"/events/{event['id']}/resolve", json={
-        "winning_outcome_id": outcome_yes["id"],
+        "winning_outcome_id": outcome_yes["id"], "evidence_url": "https://example.com/preuve",
     }, headers=bettor_headers)
     assert resp.status_code == 403
 
@@ -72,10 +72,19 @@ def test_resolve_event_pays_out_correctly(client, admin_headers, bettor_headers)
     event = client.get("/events/").json()[0]
     outcome_yes = next(o for o in event["outcomes"] if o["outcome"] == "Oui")
 
+    # Étape 1 : mark_resolution — marque l'outcome gagnant, ne paie encore rien.
     resp = client.post(f"/events/{event['id']}/resolve", json={
-        "winning_outcome_id": outcome_yes["id"], "note": "Test automatisé",
+        "winning_outcome_id": outcome_yes["id"], "evidence_url": "https://example.com/preuve",
     }, headers=admin_headers)
     assert resp.status_code == 200
+
+    event_after_resolve = client.get(f"/events/{event['id']}").json()
+    assert event_after_resolve["status"] == "resolved_pending_dispute"
+
+    # Étape 2 : finalize_payout — paie réellement, une fois la fenêtre de dispute "passée"
+    # (ici immédiatement, aucun test ne lève de dispute sur cet event).
+    finalize_resp = client.post(f"/events/{event['id']}/finalize-payout", headers=admin_headers)
+    assert finalize_resp.status_code == 200
 
     # Seul pari placé : 1000 sur "Oui", personne sur "Non".
     # payout = (1000/1000) * 1000 * (1 - 200/10000) = 980
@@ -90,7 +99,7 @@ def test_resolved_event_cannot_be_resolved_again(client, admin_headers):
     outcome_yes = next(o for o in event["outcomes"] if o["outcome"] == "Oui")
 
     resp = client.post(f"/events/{event['id']}/resolve", json={
-        "winning_outcome_id": outcome_yes["id"],
+        "winning_outcome_id": outcome_yes["id"], "evidence_url": "https://example.com/preuve",
     }, headers=admin_headers)
     assert resp.status_code == 400
 

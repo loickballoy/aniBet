@@ -21,16 +21,27 @@ type Tab = "create-event" | "manage-events" | "create-series" | "create-bingo" |
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_STYLE: Record<string, string> = {
-  open:      "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  locked:    "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-  resolved:  "bg-blue-500/15   text-blue-400   border-blue-500/30",
-  cancelled: "bg-red-500/15    text-red-400    border-red-500/30",
+  open:                     "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  locked:                   "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+  resolved_pending_dispute: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  disputed:                 "bg-red-500/15 text-red-400 border-red-500/30",
+  resolved:                 "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  cancelled:                "bg-red-500/15 text-red-400 border-red-500/30",
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  open: "Ouvert",
+  locked: "Verrouillé",
+  resolved_pending_dispute: "Résolu (fenêtre de dispute)",
+  disputed: "Contesté",
+  resolved: "Payé",
+  cancelled: "Annulé",
 }
 
 function Badge({ status }: { status: string }) {
   return (
     <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[status] ?? "bg-muted text-muted-foreground"}`}>
-      {status}
+      {STATUS_LABEL[status] ?? status}
     </span>
   )
 }
@@ -364,7 +375,9 @@ function CreateBingoForm({ series, token, API, onSuccess }: { series: Series[]; 
 function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; token: string; API: string; onRefresh: () => void }) {
   const [resolving, setResolving] = React.useState<number | null>(null)
   const [winnerIds, setWinnerIds] = React.useState<Record<number, string>>({})
+  const [evidenceUrls, setEvidenceUrls] = React.useState<Record<number, string>>({})
   const [carouselLoading, setCarouselLoading] = React.useState<number | null>(null)
+  const [finalizing, setFinalizing] = React.useState<number | null>(null)
   const [filter, setFilter] = React.useState("all")
 
   const filtered = filter === "all" ? events : events.filter((e) => e.status === filter)
@@ -376,14 +389,41 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
 
   async function resolveEvent(event: Event) {
     const winnerId = winnerIds[event.id]
+    const evidenceUrl = (evidenceUrls[event.id] ?? "").trim()
     if (!winnerId) return alert("Choisis l'outcome gagnant")
-    await fetch(`${API}/events/${event.id}/resolve`, {
+    if (!evidenceUrl) return alert("Un lien de preuve est requis — c'est ce qui rend la résolution contestable/vérifiable")
+
+    const res = await fetch(`${API}/events/${event.id}/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ winning_outcome_id: Number(winnerId), note: null }),
+      body: JSON.stringify({ winning_outcome_id: Number(winnerId), evidence_url: evidenceUrl }),
     })
+    if (!res.ok) {
+      const msg = await res.json().catch(() => null)
+      alert(msg?.detail ?? `Erreur (${res.status})`)
+      return
+    }
     setResolving(null)
     onRefresh()
+  }
+
+  async function finalizePayout(event: Event) {
+    if (!confirm(`Finaliser le paiement pour "${event.title}" ? Cette action distribue les gains et ne peut pas être annulée.`)) return
+    setFinalizing(event.id)
+    try {
+      const res = await fetch(`${API}/events/${event.id}/finalize-payout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const msg = await res.json().catch(() => null)
+        alert(msg?.detail ?? `Erreur (${res.status})`)
+        return
+      }
+      onRefresh()
+    } finally {
+      setFinalizing(null)
+    }
   }
 
   async function toggleCarousel(event: Event) {
@@ -397,10 +437,10 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
   return (
     <div>
       <div className="mb-4 flex flex-wrap gap-2">
-        {["all", "open", "locked", "resolved"].map((s) => (
+        {["all", "open", "locked", "resolved_pending_dispute", "disputed", "resolved"].map((s) => (
           <button key={s} onClick={() => setFilter(s)}
             className={`rounded-full border px-3 py-1 text-xs font-medium transition ${filter === s ? "border-primary bg-primary/15 text-primary" : "border-border/60 text-muted-foreground hover:text-foreground"}`}>
-            {s === "all" ? "Tous" : s}
+            {s === "all" ? "Tous" : (STATUS_LABEL[s] ?? s)}
           </button>
         ))}
       </div>
@@ -429,6 +469,17 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
                 {(event.status === "open" || event.status === "locked") && (
                   <button onClick={() => setResolving(resolving === event.id ? null : event.id)} className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-500/20 transition">✓ Résoudre</button>
                 )}
+                {event.status === "resolved_pending_dispute" && (
+                  <button onClick={() => finalizePayout(event)} disabled={finalizing === event.id}
+                    className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/20 transition disabled:opacity-50">
+                    {finalizing === event.id ? "…" : "💰 Finaliser le paiement"}
+                  </button>
+                )}
+                {event.status === "disputed" && (
+                  <span className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
+                    ⚠ Litige en cours — paiement bloqué
+                  </span>
+                )}
                 <button onClick={() => toggleCarousel(event)} disabled={carouselLoading === event.id}
                   className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary hover:bg-primary/20 transition disabled:opacity-50">
                   {carouselLoading === event.id ? "…" : "⭐ Carousel"}
@@ -445,11 +496,25 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
                       {o.outcome}
                     </button>
                   ))}
-                  <button onClick={() => resolveEvent(event)} disabled={!winnerIds[event.id]}
-                    className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50 transition">
-                    Confirmer
-                  </button>
                 </div>
+                <div className="mt-3">
+                  <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                    Lien de preuve * — un chapitre, un tweet officiel, une capture&hellip; n&apos;importe quoi de vérifiable
+                  </label>
+                  <input
+                    className="h-9 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-xs outline-none transition focus:border-primary/50"
+                    value={evidenceUrls[event.id] ?? ""}
+                    onChange={(e) => setEvidenceUrls({ ...evidenceUrls, [event.id]: e.target.value })}
+                    placeholder="https://…"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground/70">
+                  La résolution ouvre une fenêtre de dispute — le paiement ne partira qu&apos;après avoir cliqué séparément sur « Finaliser le paiement », une fois sûr qu&apos;aucun litige n&apos;est en cours.
+                </p>
+                <button onClick={() => resolveEvent(event)} disabled={!winnerIds[event.id] || !(evidenceUrls[event.id] ?? "").trim()}
+                  className="mt-3 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50 transition">
+                  Confirmer la résolution
+                </button>
               </div>
             )}
           </div>

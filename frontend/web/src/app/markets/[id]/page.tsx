@@ -71,17 +71,21 @@ async function getSeries(id: number): Promise<SeriesRow | null> {
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    open:     "border-emerald-500/40 bg-emerald-500/15 text-emerald-400",
-    locked:   "border-orange-500/40 bg-orange-500/15 text-orange-400",
-    resolved: "border-blue-500/40 bg-blue-500/15 text-blue-400",
-    closed:   "border-border/50 bg-background/60 text-muted-foreground",
+    open:                     "border-emerald-500/40 bg-emerald-500/15 text-emerald-400",
+    locked:                   "border-orange-500/40 bg-orange-500/15 text-orange-400",
+    resolved_pending_dispute: "border-orange-500/40 bg-orange-500/15 text-orange-400",
+    disputed:                 "border-red-500/40 bg-red-500/15 text-red-400",
+    resolved:                 "border-blue-500/40 bg-blue-500/15 text-blue-400",
+    closed:                   "border-border/50 bg-background/60 text-muted-foreground",
   }
   const labels: Record<string, string> = {
-    open: "Ouvert", locked: "Verrouillé", resolved: "Résolu", closed: "Fermé"
+    open: "Ouvert", locked: "Verrouillé",
+    resolved_pending_dispute: "Résolu (fenêtre de dispute)",
+    disputed: "Contesté", resolved: "Payé", closed: "Fermé"
   }
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold backdrop-blur-sm ${styles[status] ?? styles.closed}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${status === "open" ? "bg-emerald-400" : status === "resolved" ? "bg-blue-400" : status === "locked" ? "bg-orange-400" : "bg-border"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${status === "open" ? "bg-emerald-400" : status === "resolved" ? "bg-blue-400" : status === "disputed" ? "bg-red-400" : (status === "locked" || status === "resolved_pending_dispute") ? "bg-orange-400" : "bg-border"}`} />
       {labels[status] ?? status}
     </span>
   )

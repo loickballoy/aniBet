@@ -11,6 +11,11 @@ from app.routes.ranking import RankRouter
 from app.routes.series import SeriesRouter
 from app.routes.bingo import BingoRouter
 from app.routes.transactions import TransactionRouter
+from app.routes.moderation import ModerationRouter
+from app.routes.seasons import SeasonRouter
+from app.routes.daily import DailyRouter
+from app.routes.weekly import WeeklyRouter
+
 from app.setting import settings
 
 app = FastAPI()
@@ -56,3 +61,7 @@ app.include_router(RankRouter)
 app.include_router(SeriesRouter)
 app.include_router(BingoRouter)
 app.include_router(TransactionRouter)
+app.include_router(ModerationRouter)
+app.include_router(SeasonRouter)
+app.include_router(DailyRouter)
+app.include_router(WeeklyRouter)
