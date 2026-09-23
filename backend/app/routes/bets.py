@@ -1,36 +1,42 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.models.bet import Bet, PlaceBetRequest, BetWithDetails
-from app.utils.auth_utils import user_dependency
-from app.utils import bet_utils, auth_utils
+
+from app.utils import auth_utils
+from app.utils import bet_utils
+
+user_dependency = auth_utils.user_dependency
 
 BetsRouter = APIRouter(
-    prefix="/bets", 
+    prefix="/bets",
     tags=["bets"]
 )
 
 @BetsRouter.post("/", response_model=Bet, status_code=status.HTTP_201_CREATED)
 async def place_bet(request: PlaceBetRequest, current_user: user_dependency):
     if request.points_placed <= 0:
-        raise HTTPException(status_code=400, detail="points_placed must be positive")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="points_placed must be positive and non-null")
 
     event = bet_utils.get_event_by_id(request.event_id)
     if not event:
-        raise HTTPException(status_code=400, detail='Event not found')
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Event not found")
     if event.status != "open":
-        raise HTTPException(status_code=400, detail=f"Bets are closed for this event: {event.status}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Bets are closed for this event: {event.status}")
 
     outcome = bet_utils.get_outcome_by_id(request.outcome_id)
     if not outcome or outcome.event_id != request.event_id:
-        raise HTTPException(status_code=400, detail=f"Outcome does not belong to this event")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Outcome does not belong to this event")
 
     if bet_utils.user_already_bet(auth_utils.get_user_id(current_user.username), request.event_id):
-        raise HTTPException(status_code=400, detail="User already placed a bet on this event")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already placed a bet on this event")
 
     if current_user.points_balance < request.points_placed:
-        raise HTTPException(status_code=400, detail="User does not have the funds to place such a bet!")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User does not have the funds to place such a bet!")
 
-    bet = bet_utils.place_bet(auth_utils.get_user_id(current_user.username), request.outcome_id, request.points_placed)
+    try:
+        bet = bet_utils.place_bet(auth_utils.get_user_id(current_user.username), request.outcome_id, request.points_placed)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     return bet
 
 @BetsRouter.get("/me", response_model=list[BetWithDetails])

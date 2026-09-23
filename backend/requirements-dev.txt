@@ -1,0 +1,6 @@
+# Dépendances de test uniquement — jamais installées en production.
+# Installer avec : pip install -r requirements.txt -r requirements-dev.txt
+
+pytest==8.3.4
+pytest-html==4.1.1
+pytest-order==1.3.0

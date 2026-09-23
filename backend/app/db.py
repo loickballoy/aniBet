@@ -1,19 +1,22 @@
-import httpx
-from supabase import create_client, Client, ClientOptions
-from app.setting import settings
+from typing import Annotated, Generator
+
 from fastapi import Depends
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
-supabase: Client = create_client(
-    settings.database_url,
-    settings.database_key,
-    options=ClientOptions(
-        httpx_client=httpx.Client(http2=False)
-    )
+from app.setting import settings
+
+pool = ConnectionPool(
+    conninfo=settings.database_url,
+    min_size=1,
+    max_size=10,
+    kwargs={"row_factory": dict_row},
+    open=False,
 )
+pool.open()
 
-from typing import Generator, Annotated
+def get_db() -> Generator:
+    with pool.connection() as conn:
+        yield conn
 
-def get_supabase():
-    yield supabase
-
-db_dependency = Annotated[Client, Depends(get_supabase)]
+db_dependency = Annotated[object, Depends(get_db)]

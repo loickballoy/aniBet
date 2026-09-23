@@ -18,6 +18,12 @@ class GoogleUser(BaseModel):
     name: str
     picture: str
 
+class DiscordUser(BaseModel):
+    id: str
+    username: str
+    email: str | None = None
+    verified: bool = False
+    avatar: str | None = None
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str

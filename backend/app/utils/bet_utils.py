@@ -1,56 +1,123 @@
-from app.db import get_supabase
+"""
+Logique de paris : lecture des events/outcomes/bets, placement d'un pari,
+résolution d'un event.
+
+IMPORTANT — place_bet() et resolve_event() n'exécutent plus la logique en
+Python. Elles appellent fn_place_bet() / fn_resolve_event() (voir
+migrations/002_functions.sql), qui s'exécutent chacune dans UNE SEULE
+transaction Postgres avec verrous de ligne. L'ancienne version enchaînait
+5 appels Supabase séparés malgré le commentaire "Atomically" — un crash entre
+deux appels pouvait déduire les points d'un utilisateur sans jamais
+enregistrer son pari. Les checks de validation (event existe, status "open",
+solde suffisant...) restent dans routes/bets.py pour des messages d'erreur
+précis côté utilisateur ; la fonction SQL refait les mêmes vérifications en
+interne comme filet de sécurité contre une course entre deux requêtes
+concurrentes — c'est elle qui a le dernier mot, pas la route.
+"""
+
+from app.db import pool
 from app.models.bet import Bet
 from app.models.event import Event, EventOutcome
 
-# -- Event helpers --
+
+# ---------------------------------------------------------------------------
+# Event / outcome helpers — simples SELECT, pas de changement de logique
+# ---------------------------------------------------------------------------
 
 def get_outcomes_for_event(event_id: int) -> list[EventOutcome]:
-    supabase = next(get_supabase())
-    res = supabase.table("event_outcomes").select("*").eq("event_id", event_id).execute()
-    return [EventOutcome(**row) for row in res.data]
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM event_outcomes WHERE event_id = %s', (event_id,))
+            rows = cur.fetchall()
+    return [EventOutcome(**row) for row in rows]
+
 
 def get_events(status: str | None = None, series_id: int | None = None, limit: int = 20, offset: int = 0) -> list[Event]:
-    supabase = next(get_supabase())
-    query = supabase.table("events").select("*").order("created_at", desc=True).range(offset, offset + limit - 1)
+    # Construction dynamique du WHERE : on ajoute une condition et son
+    # paramètre seulement si le filtre est fourni. Les %s restent la seule
+    # façon dont une valeur entre dans la requête — jamais de f-string.
+    conditions = []
+    params: list = []
     if status:
-        query = query.eq("status", status)
+        conditions.append("status = %s")
+        params.append(status)
     if series_id:
-        query = query.eq("series_id", series_id)
-    res = query.execute()
-    return [Event(**row) for row in res.data]
+        conditions.append("series_id = %s")
+        params.append(series_id)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    query = f"""
+        SELECT * FROM events
+        {where_clause}
+        ORDER BY created_at DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([limit, offset])
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, tuple(params))
+            rows = cur.fetchall()
+    return [Event(**row) for row in rows]
+
 
 def get_event_by_id(event_id: int) -> Event | None:
-    supabase = next(get_supabase())
-    res = supabase.table("events").select("*").eq("id", event_id).execute()
-    return Event(**res.data[0]) if res.data else None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM events WHERE id = %s', (event_id,))
+            row = cur.fetchone()
+    return Event(**row) if row else None
+
 
 def get_outcome_by_id(outcome_id: int) -> EventOutcome | None:
-    supabase = next(get_supabase())
-    res = supabase.table("event_outcomes").select("*").eq("id", outcome_id).execute()
-    return EventOutcome(**res.data[0]) if res.data else None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM event_outcomes WHERE id = %s', (outcome_id,))
+            row = cur.fetchone()
+    return EventOutcome(**row) if row else None
 
-# -- Bet helpers --
+
+# ---------------------------------------------------------------------------
+# Bet helpers
+# ---------------------------------------------------------------------------
 
 def get_bets_by_user(user_id: int) -> list[Bet]:
-    supabase = next(get_supabase())
-    res = supabase.table("bets").select("*").eq("user_id", user_id).execute()
-    return [Bet(**row) for row in res.data]
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM bets WHERE user_id = %s', (user_id,))
+            rows = cur.fetchall()
+    return [Bet(**row) for row in rows]
+
 
 def get_bets_by_outcome(outcome_id: int) -> list[Bet]:
-    supabase = next(get_supabase())
-    res = supabase.table("bets").select("*").eq("outcome_id", outcome_id).execute()
-    return [Bet(**row) for row in res.data]
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM bets WHERE outcome_id = %s', (outcome_id,))
+            rows = cur.fetchall()
+    return [Bet(**row) for row in rows]
+
 
 def user_already_bet(user_id: int, event_id: int) -> bool:
-    supabase=next(get_supabase())
     outcomes = get_outcomes_for_event(event_id)
-    outcomes_id = [o.id for o in outcomes]
-    if not outcomes_id:
+    outcome_ids = [o.id for o in outcomes]
+    if not outcome_ids:
         return False
-    res = supabase.table("bets").select("id").eq("user_id", user_id).in_("outcome_id", outcomes_id).neq("status", "refunded").execute()
-    return len(res.data) > 0
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id FROM bets
+                WHERE user_id = %s AND outcome_id = ANY(%s) AND status <> 'refunded'
+                """,
+                (user_id, outcome_ids),
+            )
+            rows = cur.fetchall()
+    return len(rows) > 0
 
-# -- Payout logic --
+
+# ---------------------------------------------------------------------------
+# Payout logic — calcul pur, aucun accès DB, inchangé
+# ---------------------------------------------------------------------------
 
 def calculate_payout(points_placed: int, outcome_pool: int, event_pool: int, fee_bps: int) -> float:
     if outcome_pool == 0:
@@ -58,6 +125,7 @@ def calculate_payout(points_placed: int, outcome_pool: int, event_pool: int, fee
     gross_payout = (points_placed / outcome_pool) * event_pool
     net = gross_payout * (1 - fee_bps / 10000)
     return int(net)
+
 
 def calculate_potential_payout(points_placed: int, outcome_id: int, event: Event):
     outcome = get_outcome_by_id(outcome_id)
@@ -68,103 +136,102 @@ def calculate_potential_payout(points_placed: int, outcome_id: int, event: Event
     projected_total_pool = event.pool_total + points_placed
     return calculate_payout(points_placed, projected_outcome_pool, projected_total_pool, event.fee_bps)
 
-# -- Core Bet placement --
+
+# ---------------------------------------------------------------------------
+# Core — maintenant de vraies transactions Postgres, pas du Python enchaîné
+# ---------------------------------------------------------------------------
+
+def create_event(title: str, description: str | None, series_id: int | None,
+                  opens_at, locks_at, fee_bps: int, cover_url: str | None,
+                  created_by: int, outcome_labels: list[str], tag_ids: list[int]) -> Event:
+    """
+    Insère l'event, ses outcomes et ses tags dans la même connexion —
+    avant, c'étaient 3 appels Supabase séparés directement dans la route ;
+    un échec au 2e ou 3e appel laissait un event orphelin sans outcomes.
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO events (title, description, series_id, opens_at, locks_at, fee_bps, cover_url, status, pool_total, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', 0, %s)
+                RETURNING *
+                """,
+                (title, description, series_id, opens_at, locks_at, fee_bps, cover_url, created_by),
+            )
+            event_row = cur.fetchone()
+            event_id = event_row["id"]
+
+            cur.executemany(
+                'INSERT INTO event_outcomes (event_id, outcome) VALUES (%s, %s)',
+                [(event_id, label) for label in outcome_labels],
+            )
+
+            if tag_ids:
+                cur.executemany(
+                    'INSERT INTO event_tags (event_id, tags_id) VALUES (%s, %s) ON CONFLICT DO NOTHING',
+                    [(event_id, tid) for tid in tag_ids],
+                )
+
+            cur.execute('SELECT * FROM event_outcomes WHERE event_id = %s', (event_id,))
+            outcome_rows = cur.fetchall()
+        conn.commit()
+
+    return Event(**event_row), [EventOutcome(**row) for row in outcome_rows]
+
+
+def lock_event(event_id: int) -> None:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE events SET status = 'locked' WHERE id = %s", (event_id,))
+        conn.commit()
+
 
 def place_bet(user_id: int, outcome_id: int, points_placed: int) -> Bet:
     """
-    Atomically:
-      1. Deduct points from user
-      2. Insert bet row
-      3. Update outcome pool_points
-      4. Update event pool_total
-      5. Insert point_transaction (debit)
+    Appelle fn_place_bet(), qui dans UNE transaction : verrouille le solde
+    utilisateur, vérifie le pari existant/le solde/le statut de l'event,
+    déduit les points, insère le pari, met à jour les deux pools, journalise
+    la transaction. Si Postgres lève une exception (ex: solde insuffisant
+    détecté au niveau SQL malgré le check déjà fait côté route — cas rare
+    de course entre deux requêtes concurrentes), elle remonte ici comme
+    ValueError avec le message exact.
     """
-    supabase = next(get_supabase())
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    'SELECT * FROM fn_place_bet(%s, %s, %s)',
+                    (user_id, outcome_id, points_placed),
+                )
+                row = cur.fetchone()
+            except Exception as e:
+                conn.rollback()
+                raise ValueError(str(e)) from e
+        conn.commit()
 
-    outcome = get_outcome_by_id(outcome_id)
-    event = get_event_by_id(outcome.event_id)
+    bet_id = row["bet_id"]
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM bets WHERE id = %s', (bet_id,))
+            bet_row = cur.fetchone()
+    return Bet(**bet_row)
 
-    # 1. Deduct user balance
-    supabase.rpc("deduct_user_points", {"p_user_id": user_id, "p_amount": points_placed}).execute()
-
-    # 2. Insert bet
-    bet_data = {"user_id": user_id, "outcome_id": outcome_id, "points_placed": points_placed, "status": "pending"}
-    bet_res = supabase.table("bets").insert(bet_data).execute()
-    bet = Bet(**bet_res.data[0])
-
-    # 3. Update outcome pool
-    supabase.table("event_outcomes").update(
-        {"pool_points": outcome.pool_points + points_placed}
-    ).eq("id", outcome_id).execute()
-
-    # 4. Update event total pool
-    supabase.table("events").update(
-        {"pool_total": event.pool_total + points_placed}
-    ).eq("id", event.id).execute()
-
-    # 5. Record transaction
-    supabase.table("point_transactions").insert({
-        "user_id": user_id,
-        "kind": "bet_placed",
-        "amount": -points_placed,
-        "reference_type": "bet",
-        "reference_id": bet.id,
-    }).execute()
-
-    return bet
-
-# --Event resolution -- 
 
 def resolve_event(event_id: int, winning_outcome_id: int, resolved_by: int, note: str | None = None):
     """
-    1. Mark event as resolved
-    2. Mark winning outcome
-    3. For each winning bet → calculate payout, update bet status, credit user, log transaction
-    4. For each losing bet → mark as lost
-    5. Insert event_resolution row
+    Appelle fn_resolve_event(), qui dans UNE transaction : verrouille
+    l'event, marque l'outcome gagnant, calcule et crédite chaque payout
+    gagnant, marque les paris perdants, journalise la résolution.
     """
-    supabase = next(get_supabase())
-
-    event = get_event_by_id(event_id)
-    winning_outcome = get_outcome_by_id(winning_outcome_id)
-    all_outcomes = get_outcomes_for_event(event_id)
-
-    # 1. Resolve event
-    supabase.table("events").update({"status": "resolved"}).eq("id", event_id).execute()
-
-    # 2. Mark winning outcome
-    supabase.table("event_outcomes").update({"is_winner": True}).eq("id", winning_outcome_id).execute()
-
-    # 3 & 4. Process bets for each outcome
-    for outcome in all_outcomes:
-        bets = get_bets_by_outcome(outcome.id)
-        for bet in bets:
-            if bet.status == "refunded":
-                continue
-            if outcome.id == winning_outcome_id:
-                payout = calculate_payout(
-                    bet.points_placed,
-                    winning_outcome.pool_points,
-                    event.pool_total,
-                    event.fee_bps,
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    'SELECT fn_resolve_event(%s, %s, %s, %s)',
+                    (event_id, winning_outcome_id, resolved_by, note),
                 )
-                supabase.table("bets").update({"status": "won"}).eq("id", bet.id).execute()
-                # Credit payout
-                supabase.rpc("add_user_points", {"p_user_id": bet.user_id, "p_amount": payout}).execute()
-                supabase.table("point_transactions").insert({
-                    "user_id": bet.user_id,
-                    "kind": "bet_won",
-                    "amount": payout,
-                    "reference_type": "bet",
-                    "reference_id": bet.id,
-                }).execute()
-            else:
-                supabase.table("bets").update({"status": "lost"}).eq("id", bet.id).execute()
-
-    # 5. Insert resolution record
-    supabase.table("event_resolution").insert({
-        "event_id": event_id,
-        "winning_outcomes_id": winning_outcome_id,
-        "resolved_by": resolved_by,
-        "note": note,
-    }).execute()
+            except Exception as e:
+                conn.rollback()
+                raise ValueError(str(e)) from e
+        conn.commit()

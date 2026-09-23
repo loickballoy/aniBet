@@ -25,12 +25,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-bearer_scheme = HTTPBearer
 
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
     schema = get_openapi(title="aniBet API", version="1.0.0", routes=app.routes)
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})
     schema["components"]["securitySchemes"]["BearerAuth"] = {
         "type": "http",
         "scheme": "bearer",

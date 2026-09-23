@@ -1,32 +1,35 @@
-from app.db import get_supabase
+from app.db import pool
 from app.models.transaction import PointTransaction, PointTransactionWithBalance
 
-
 def get_transactions_by_user(user_id: int) -> list[PointTransactionWithBalance]:
-    """
-    Fetch all transactions for a user sorted by created_at ASC,
-    and compute a running balance_after for each entry (used for graph rendering).
-    """
-    supabase = next(get_supabase())
-    res = (
-        supabase.table("point_transactions")
-        .select("*")
-        .eq("user_id", user_id)
-        .order("created_at", desc=False)
-        .execute()
-    )
-
-    transactions = [PointTransaction(**row) for row in res.data]
-
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT * FROM point_transactions WHERE user_id = %s ORDER BY created_at ASC',
+                (user_id,),
+            )
+            rows = cur.fetchall()
+ 
+    transactions = [PointTransaction(**row) for row in rows]
+ 
     result: list[PointTransactionWithBalance] = []
     running_total = 0
     for tx in transactions:
         running_total += tx.amount
         result.append(PointTransactionWithBalance(**tx.model_dump(), balance_after=running_total))
-
+ 
     return result
-
-def get_winrate_by_user(user_id: int):
-    supabase = next(get_supabase())
-    res = supabase.table("bets").select("status").eq("user_id", user_id).neq("status", "pending").neq("status", "refunded").execute()
-    return res.data
+ 
+ 
+def get_winrate_by_user(user_id: int) -> list[dict]:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status FROM bets
+                WHERE user_id = %s AND status NOT IN ('pending', 'refunded')
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
+    return rows

@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter
 
 from app.models.user import UserInLeaderboard
-from app.utils.auth_utils import user_dependency
-from app.utils import bet_utils, auth_utils, rank_utils
-
+from app.utils import auth_utils
+from app.utils import rank_utils
 from app.setting import TIERS
 
+user_dependency = auth_utils.user_dependency
 
 RankRouter = APIRouter(
-    prefix="/rank", 
+    prefix="/rank",
     tags=["rank"]
 )
 
@@ -18,8 +18,7 @@ async def get_leaderboard(limit: int = 20, offset: int = 0) -> list[UserInLeader
 
 @RankRouter.get("/leaderboard/me")
 async def get_my_rank(current_user: user_dependency):
-    user_rank = rank_utils.get_user_rank(current_user)
-    return user_rank
+    return rank_utils.get_user_rank(current_user)
 
 @RankRouter.get("/leaderboard/tiers")
 async def get_tiers():

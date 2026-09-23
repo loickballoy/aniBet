@@ -3,6 +3,7 @@ from pydantic import BaseModel
 class User(BaseModel):
     username: str
     google_sub: str | None = None
+    discord_id: str | None = None
     email: str
     role: str
     is_banned: bool = False
@@ -11,7 +12,7 @@ class User(BaseModel):
     
 
 class UserInDB(User):
-    password_hash: str
+    password_hash: str | None = None
 
 class UserInLeaderboard(BaseModel):
     rank: int | None = None

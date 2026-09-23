@@ -1,4 +1,21 @@
-from app.db import get_supabase
+"""
+Carousel de la home : events mis en avant manuellement par un admin
+("admin_carousel", toujours affichés en premier) + les events les plus
+actifs pour remplir les places restantes ("carousel", recalculé à chaque
+appel).
+
+OPTIMISATION PAR RAPPORT À L'ORIGINAL
+--------------------------------------
+L'ancienne version faisait ~15 allers-retours Supabase séparés pour une
+seule requête de trending : un fetch de tous les events, un fetch de TOUS
+les bets pour compter côté Python, puis une requête par event pour ses
+outcomes (le classique problème "N+1 requêtes" — 1 requête pour la liste,
+puis N requêtes, une par élément de la liste). Ici, Postgres fait le
+comptage et les jointures nativement avec GROUP BY et WHERE ... = ANY(...),
+ce qui ramène ça à une poignée de requêtes au lieu d'une par event.
+"""
+
+from app.db import pool
 from app.models.event import Event, EventOutcome, EventWithOutcomes
 
 TRENDING_LIMIT = 5
@@ -6,131 +23,151 @@ CAROUSEL_TAG_NAME = "carousel"
 ADMIN_CAROUSEL_TAG_NAME = "admin_carousel"
 
 
-def _get_or_create_tag(supabase, name: str) -> int:
-    """Return the id of a tag by name, creating it if it doesn't exist."""
-    res = supabase.table("tags").select("id").eq("label", name).execute()
-    if res.data:
-        return res.data[0]["id"]
-    created = supabase.table("tags").insert({"label": name}).execute()
-    return created.data[0]["id"]
+def _get_or_create_tag_id(cur, name: str) -> int:
+    """
+    "Get or create" en une seule requête grâce à la contrainte UNIQUE sur
+    tags.label posée dans le schéma : INSERT ... ON CONFLICT DO UPDATE
+    renvoie toujours la ligne (existante ou nouvelle) via RETURNING, alors
+    qu'un ON CONFLICT DO NOTHING ne renverrait rien si la ligne existait déjà.
+    """
+    cur.execute(
+        """
+        INSERT INTO tags (label) VALUES (%s)
+        ON CONFLICT (label) DO UPDATE SET label = EXCLUDED.label
+        RETURNING id
+        """,
+        (name,),
+    )
+    return cur.fetchone()["id"]
 
 
 def get_trending_events() -> list[EventWithOutcomes]:
-    """
-    1. Admin_carousel events are always included and take priority slots
-    2. Fill remaining slots (up to TRENDING_LIMIT) with best scored open events
-    3. Reset and reassign 'carousel' tag for non-admin trending events
-    4. Return admin_carousel events + trending fill-ins (total capped at TRENDING_LIMIT)
-    """
-    supabase = next(get_supabase())
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            carousel_tag_id = _get_or_create_tag_id(cur, CAROUSEL_TAG_NAME)
+            admin_carousel_tag_id = _get_or_create_tag_id(cur, ADMIN_CAROUSEL_TAG_NAME)
 
-    carousel_tag_id = _get_or_create_tag(supabase, CAROUSEL_TAG_NAME)
-    admin_carousel_tag_id = _get_or_create_tag(supabase, ADMIN_CAROUSEL_TAG_NAME)
+            # --- Events déjà épinglés en admin_carousel ---
+            cur.execute(
+                'SELECT event_id FROM event_tags WHERE tags_id = %s',
+                (admin_carousel_tag_id,),
+            )
+            admin_carousel_ids = {row["event_id"] for row in cur.fetchall()}
 
-    # --- Fetch admin_carousel event ids ---
-    admin_tagged_res = (
-        supabase.table("event_tags")
-        .select("event_id")
-        .eq("tags_id", admin_carousel_tag_id)
-        .execute()
-    )
-    admin_carousel_ids = {row["event_id"] for row in admin_tagged_res.data}
+            # --- Events ouverts + leur nombre de paris, en une requête ---
+            # (remplace le fetch de tous les events + fetch de tous les bets
+            # + comptage manuel en Python de l'original)
+            cur.execute(
+                """
+                SELECT e.*, COUNT(b.id) AS bet_count
+                FROM events e
+                LEFT JOIN event_outcomes eo ON eo.event_id = e.id
+                LEFT JOIN bets b ON b.outcome_id = eo.id
+                WHERE e.status = 'open'
+                GROUP BY e.id
+                """
+            )
+            open_events_rows = cur.fetchall()
 
-    # --- Fetch open events ---
-    events_res = supabase.table("events").select("*").eq("status", "open").execute()
-    open_events = [Event(**row) for row in events_res.data]
+            def score(row) -> float:
+                return row["pool_total"] * 0.6 + row["bet_count"] * 0.4
 
-    # --- Count bets per event (via outcomes) ---
-    bets_res = (
-        supabase.table("bets")
-        .select("outcome_id, event_outcomes(event_id)")
-        .execute()
-    )
-    bet_count_by_event: dict[int, int] = {}
-    for row in bets_res.data:
-        eo = row.get("event_outcomes")
-        if eo:
-            eid = eo.get("event_id")
-            if eid:
-                bet_count_by_event[eid] = bet_count_by_event.get(eid, 0) + 1
+            non_admin_rows = [r for r in open_events_rows if r["id"] not in admin_carousel_ids]
+            sorted_rows = sorted(non_admin_rows, key=score, reverse=True)
 
-    # --- Score and sort open events, excluding admin_carousel ones ---
-    def score(event: Event) -> float:
-        bets = bet_count_by_event.get(event.id, 0)
-        return event.pool_total * 0.6 + bets * 0.4
+            remaining_slots = max(0, TRENDING_LIMIT - len(admin_carousel_ids))
+            trending_rows = sorted_rows[:remaining_slots]
+            trending_ids = {r["id"] for r in trending_rows}
 
-    non_admin_events = [e for e in open_events if e.id not in admin_carousel_ids]
-    sorted_events = sorted(non_admin_events, key=score, reverse=True)
+            # --- Reset des tags carousel (jamais les admin_carousel) ---
+            # Un DELETE en masse au lieu d'une boucle avec un DELETE par ligne.
+            # event_id <> ALL(%s) avec une liste vide exclut rien, donc tout
+            # est supprimé si aucun admin_carousel n'existe — comportement
+            # voulu, pas besoin de cas particulier.
+            cur.execute(
+                """
+                DELETE FROM event_tags
+                WHERE tags_id = %s AND event_id <> ALL(%s)
+                """,
+                (carousel_tag_id, list(admin_carousel_ids) or [0]),
+            )
 
-    # Fill remaining slots after admin_carousel
-    remaining_slots = max(0, TRENDING_LIMIT - len(admin_carousel_ids))
-    trending_events = sorted_events[:remaining_slots]
-    trending_ids = {e.id for e in trending_events}
+            # --- Tag des nouveaux trending events ---
+            # ON CONFLICT DO NOTHING fonctionne car event_tags a une clé
+            # primaire composite (event_id, tags_id) dans le schéma.
+            if trending_ids:
+                cur.executemany(
+                    """
+                    INSERT INTO event_tags (event_id, tags_id) VALUES (%s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    [(eid, carousel_tag_id) for eid in trending_ids],
+                )
 
-    # --- Reset carousel tags (never touch admin_carousel events) ---
-    carousel_tagged_res = (
-        supabase.table("event_tags")
-        .select("event_id")
-        .eq("tags_id", carousel_tag_id)
-        .execute()
-    )
-    for row in carousel_tagged_res.data:
-        eid = row["event_id"]
-        if eid not in admin_carousel_ids:
-            supabase.table("event_tags").delete().eq("event_id", eid).eq("tags_id", carousel_tag_id).execute()
+            # --- Events admin_carousel complets (n'importe quel statut) ---
+            admin_events: list[Event] = []
+            if admin_carousel_ids:
+                cur.execute(
+                    'SELECT * FROM events WHERE id = ANY(%s)',
+                    (list(admin_carousel_ids),),
+                )
+                admin_events = [Event(**row) for row in cur.fetchall()]
 
-    # --- Tag new trending events ---
-    for eid in trending_ids:
-        exists = (
-            supabase.table("event_tags")
-            .select("event_id")
-            .eq("event_id", eid)
-            .eq("tags_id", carousel_tag_id)
-            .execute()
-        )
-        if not exists.data:
-            supabase.table("event_tags").insert({"event_id": eid, "tags_id": carousel_tag_id}).execute()
+            trending_events = [Event(**{k: v for k, v in r.items() if k != "bet_count"}) for r in trending_rows]
+            all_events = admin_events + trending_events
+            all_ids = [e.id for e in all_events]
 
-    # --- Fetch full admin_carousel events (any status) ---
-    admin_events: list[Event] = []
-    if admin_carousel_ids:
-        res = supabase.table("events").select("*").in_("id", list(admin_carousel_ids)).execute()
-        admin_events = [Event(**row) for row in res.data]
+            # --- Tous les outcomes en une requête, plutôt qu'une par event ---
+            outcomes_by_event: dict[int, list[EventOutcome]] = {}
+            if all_ids:
+                cur.execute(
+                    'SELECT * FROM event_outcomes WHERE event_id = ANY(%s)',
+                    (all_ids,),
+                )
+                for row in cur.fetchall():
+                    outcomes_by_event.setdefault(row["event_id"], []).append(EventOutcome(**row))
 
-    # --- Build final list: admin_carousel first, then trending fill-ins ---
-    all_events = admin_events + trending_events
+        conn.commit()  # les tags ont été modifiés plus haut
 
-    result: list[EventWithOutcomes] = []
-    for event in all_events:
-        outcomes_res = supabase.table("event_outcomes").select("*").eq("event_id", event.id).execute()
-        outcomes = [EventOutcome(**row) for row in outcomes_res.data]
-        result.append(EventWithOutcomes(**event.model_dump(), outcomes=outcomes))
-
-    return result
+    return [
+        EventWithOutcomes(**event.model_dump(), outcomes=outcomes_by_event.get(event.id, []))
+        for event in all_events
+    ]
 
 
 def add_admin_carousel(event_id: int) -> None:
-    """Tag an event with admin_carousel."""
-    supabase = next(get_supabase())
-    admin_carousel_tag_id = _get_or_create_tag(supabase, ADMIN_CAROUSEL_TAG_NAME)
-    supabase.table("event_tags").insert({"event_id": event_id, "tags_id": admin_carousel_tag_id}).execute()
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            admin_carousel_tag_id = _get_or_create_tag_id(cur, ADMIN_CAROUSEL_TAG_NAME)
+            cur.execute(
+                """
+                INSERT INTO event_tags (event_id, tags_id) VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (event_id, admin_carousel_tag_id),
+            )
+        conn.commit()
 
 
 def remove_admin_carousel(event_id: int) -> None:
-    """Remove the admin_carousel tag from an event."""
-    supabase = next(get_supabase())
-    admin_carousel_tag_id = _get_or_create_tag(supabase, ADMIN_CAROUSEL_TAG_NAME)
-    supabase.table("event_tags").delete().eq("event_id", event_id).eq("tags_id", admin_carousel_tag_id).execute()
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            admin_carousel_tag_id = _get_or_create_tag_id(cur, ADMIN_CAROUSEL_TAG_NAME)
+            cur.execute(
+                'DELETE FROM event_tags WHERE event_id = %s AND tags_id = %s',
+                (event_id, admin_carousel_tag_id),
+            )
+        conn.commit()
 
 
 def has_admin_carousel_tag(event_id: int) -> bool:
-    supabase = next(get_supabase())
-    admin_carousel_tag_id = _get_or_create_tag(supabase, ADMIN_CAROUSEL_TAG_NAME)
-    res = (
-        supabase.table("event_tags")
-        .select("event_id")
-        .eq("event_id", event_id)
-        .eq("tags_id", admin_carousel_tag_id)
-        .execute()
-    )
-    return len(res.data) > 0
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            admin_carousel_tag_id = _get_or_create_tag_id(cur, ADMIN_CAROUSEL_TAG_NAME)
+            cur.execute(
+                'SELECT 1 FROM event_tags WHERE event_id = %s AND tags_id = %s',
+                (event_id, admin_carousel_tag_id),
+            )
+            row = cur.fetchone()
+        conn.commit()  # _get_or_create_tag_id peut avoir créé le tag
+    return row is not None

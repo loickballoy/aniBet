@@ -21,11 +21,14 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
+DISCORD_REDIRECT_URI =os.getenv("DISCORD_REDIRECT_URI")
+
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 SECRET_KEY = os.getenv("SECRET_KEY")
-# Distinct du SECRET_KEY (signature JWT) — pour ne pas invalider tous les
-# tokens émis si un jour on doit tourner le secret de session, et inversement.
+
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
 
 class Settings:
@@ -36,6 +39,10 @@ class Settings:
     google_client_secret: str = GOOGLE_CLIENT_SECRET
     google_redirect_uri: str = GOOGLE_REDIRECT_URI
     
+    discord_client_id: str = DISCORD_CLIENT_ID
+    discord_client_secret: str = DISCORD_CLIENT_SECRET
+    discord_redirect_uri: str = DISCORD_REDIRECT_URI
+
     frontend_url: str = FRONTEND_URL
 
     secret_key: str = SECRET_KEY

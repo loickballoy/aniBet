@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 
 from app.models.transaction import PointTransactionWithBalance
-from app.utils.auth_utils import user_dependency
-from app.utils import transaction_utils, auth_utils
+from app.utils import auth_utils
+from app.utils import transaction_utils
+
+user_dependency = auth_utils.user_dependency
 
 TransactionRouter = APIRouter(
     prefix="/transactions",
@@ -12,17 +14,13 @@ TransactionRouter = APIRouter(
 
 @TransactionRouter.get("/me", response_model=list[PointTransactionWithBalance])
 async def get_my_transactions(current_user: user_dependency):
-    """
-    Returns the full transaction history of the connected user,
-    sorted by date ASC with a cumulative balance_after field for graph rendering.
-    """
     return transaction_utils.get_transactions_by_user(
         auth_utils.get_user_id(current_user.username)
     )
 
-@TransactionRouter .get("/winrate")
-async def get_winrate(current_user: user_dependency):
 
+@TransactionRouter.get("/winrate")
+async def get_winrate(current_user: user_dependency):
     user_id = auth_utils.get_user_id(current_user.username)
 
     bets = transaction_utils.get_winrate_by_user(user_id)
