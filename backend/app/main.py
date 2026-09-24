@@ -15,6 +15,7 @@ from app.routes.moderation import ModerationRouter
 from app.routes.seasons import SeasonRouter
 from app.routes.daily import DailyRouter
 from app.routes.weekly import WeeklyRouter
+from app.routes.upload import UploadsRouter
 
 from app.setting import settings
 
@@ -65,3 +66,4 @@ app.include_router(ModerationRouter)
 app.include_router(SeasonRouter)
 app.include_router(DailyRouter)
 app.include_router(WeeklyRouter)
+app.include_router(UploadsRouter)

@@ -120,7 +120,7 @@ export default async function HomePage({
           <div className="mt-10 mb-4 flex items-end justify-between">
             <div className="flex items-center gap-3">
               <h3 className="text-lg font-semibold">
-                {activeSeries ? activeSeries.name : "Marchés ouverts"}
+                {activeSeries ? activeSeries.name : "Open Markets"}
               </h3>
               {markets.length > 0 && (
                 <span className="text-xs text-muted-foreground">
@@ -129,7 +129,7 @@ export default async function HomePage({
               )}
             </div>
             <Link className="text-sm text-muted-foreground hover:underline" href="/markets">
-              Tout voir
+              See all
             </Link>
           </div>
         </FadeIn>
@@ -140,12 +140,12 @@ export default async function HomePage({
             <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-2xl border border-border/50 bg-card/40">
               <p className="text-sm text-muted-foreground">
                 {activeSeries
-                  ? `Aucun event ouvert pour ${activeSeries.name} pour l'instant.`
-                  : "Aucun event ouvert pour l'instant."}
+                  ? `No open event for ${activeSeries.name} yet`
+                  : "No open event yet"}
               </p>
               {activeSeries && (
                 <Link href="/" className="text-xs text-primary hover:underline">
-                  Voir tous les marchés
+                  See all markets
                 </Link>
               )}
             </div>

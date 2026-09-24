@@ -17,7 +17,7 @@ function CallbackHandler() {
     localStorage.setItem("access_token",  access_token)
     if (refresh_token) localStorage.setItem("refresh_token", refresh_token)
 
-    // Si username === email → premier login Google → setup username
+    // If username === email → first Google login → setup username
     fetch("/api/me", { headers: { Authorization: `Bearer ${access_token}` } })
       .then((r) => r.json())
       .then((user) => {
@@ -34,7 +34,7 @@ function CallbackHandler() {
     <main className="flex min-h-screen items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="text-sm text-muted-foreground">Connexion en cours…</p>
+        <p className="text-sm text-muted-foreground">Signing you in…</p>
       </div>
     </main>
   )

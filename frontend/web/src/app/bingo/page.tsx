@@ -41,7 +41,7 @@ async function apiGet<T>(path: string): Promise<T> {
 
 function formatDate(iso?: string | null) {
   if (!iso) return "—"
-  return new Date(iso).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })
+  return new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })
 }
 
 export default async function BingoHomePage() {
@@ -66,7 +66,7 @@ export default async function BingoHomePage() {
       series: s?.name ?? "Bingo",
       imageUrl,
       href: `/bingo/${c.id}`,
-      metaText: `Clôture : ${formatDate(c.closes_at)}`,
+      metaText: `Closes: ${formatDate(c.closes_at)}`,
     }
   })
 

@@ -4,9 +4,9 @@ import * as React from "react"
 
 const FORBIDDEN = /[^a-zA-Z0-9_\-\.]/
 function validate(val: string): string | null {
-  if (val.length < 3)  return "Au moins 3 caractères"
-  if (val.length > 24) return "Maximum 24 caractères"
-  if (FORBIDDEN.test(val)) return "Lettres, chiffres, _ - . uniquement"
+  if (val.length < 3)  return "At least 3 characters"
+  if (val.length > 24) return "Maximum 24 characters"
+  if (FORBIDDEN.test(val)) return "Letters, numbers, _ - . only"
   return null
 }
 
@@ -44,13 +44,13 @@ export function UsernameEditor({ current, token, API, onSaved }: Props) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ new_username: value }),
       })
-      if (!res.ok) throw new Error((await res.json())?.detail ?? "Erreur")
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Error")
       setEditing(false)
       setSuccess(true)
       onSaved(value)
       setTimeout(() => setSuccess(false), 3000)
-    } catch (e: any) {
-      setError(e?.message ?? "Erreur")
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error")
     } finally {
       setLoading(false)
     }
@@ -64,14 +64,14 @@ export function UsernameEditor({ current, token, API, onSaved }: Props) {
         <h1 className="text-2xl font-bold tracking-tight">{current}</h1>
         {success && (
           <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-400">
-            ✓ Mis à jour
+            ✓ Updated
           </span>
         )}
         <button
           onClick={() => setEditing(true)}
           className="rounded-lg border border-border/60 px-2 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-primary"
         >
-          ✏️ Modifier
+          ✏️ Edit
         </button>
       </div>
     )
@@ -97,21 +97,21 @@ export function UsernameEditor({ current, token, API, onSaved }: Props) {
           disabled={!canSave}
           className="h-9 rounded-xl bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-40"
         >
-          {loading ? "…" : "Sauver"}
+          {loading ? "…" : "Save"}
         </button>
         <button
           onClick={cancel}
           disabled={loading}
           className="h-9 rounded-xl border border-border/60 px-3 text-xs text-muted-foreground transition hover:text-foreground"
         >
-          Annuler
+          Cancel
         </button>
       </div>
 
       {(error || validationError) && (
         <p className="text-[11px] text-red-400">{error ?? validationError}</p>
       )}
-      <p className="text-[10px] text-muted-foreground opacity-60">Entrée pour sauver · Échap pour annuler</p>
+      <p className="text-[10px] text-muted-foreground opacity-60">Enter to save · Esc to cancel</p>
     </div>
   )
 }

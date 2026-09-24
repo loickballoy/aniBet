@@ -29,13 +29,13 @@ export function AvatarUpload({ username, currentUrl, token, API, onSaved }: Prop
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ pfp_url: url.trim() }),
       })
-      if (!res.ok) throw new Error((await res.json())?.detail ?? "Erreur backend")
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Backend error")
 
       setPreview(url.trim())
       setUrlInput("")
       onSaved(url.trim())
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Échec de la mise à jour"
+      const message = err instanceof Error ? err.message : "Failed to update"
       setErrMsg(message)
     } finally {
       setSaving(false)
@@ -56,12 +56,12 @@ export function AvatarUpload({ username, currentUrl, token, API, onSaved }: Prop
         )}
       </div>
 
-      {/* URL input — l'upload de fichier direct dépendait de Supabase Storage,
-          retiré (compte perdu). Solution provisoire en attendant une vraie
-          solution de stockage de fichiers pour le déploiement. */}
+      {/* URL input — direct file upload depended on Supabase Storage,
+          removed (account lost). Provisional solution until a real file
+          storage solution is set up for deployment. */}
       <div className="flex-1">
         <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-          Colle une URL d&apos;image
+          Paste an image URL
         </label>
         <div className="flex gap-1.5">
           <input

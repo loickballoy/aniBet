@@ -1,13 +1,30 @@
 import Link from "next/link"
 import type { Market } from "@/lib/markets"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
 
 export function MarketCard({ market }: { market: Market }) {
+  const outcomes = market.outcomes ?? []
+  const total = outcomes.reduce((acc, o) => acc + o.poolPoints, 0)
+
+  const isYesNo =
+    outcomes.length === 2 &&
+    outcomes.every((o) =>
+      ["oui", "non", "yes", "no"].includes(o.label.toLowerCase())
+    )
+
+  // Sort by pool desc for segmented bar + leading stat
+  const sorted = [...outcomes].sort((a, b) => b.poolPoints - a.poolPoints)
+  const leading = sorted[0]
+  const leadingPct = total > 0 ? Math.round((leading.poolPoints / total) * 100) : 50
+
+  const firstPct = total > 0 ? Math.round((outcomes[0]?.poolPoints / total) * 100) : 50
+  const secondPct = 100 - firstPct
+
   return (
-    <div className="group overflow-hidden rounded-2xl border border-border/60 bg-card transition hover:border-border hover:shadow-md">
-      {/* Cover image — full width, taller, only if available */}
+    <Link
+      href={`/markets/${market.id}`}
+      className="group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card transition hover:border-border hover:shadow-md"
+    >
+      {/* Cover */}
       {market.imageUrl && (
         <div className="relative h-32 w-full overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -16,57 +33,92 @@ export function MarketCard({ market }: { market: Market }) {
             alt=""
             className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           />
-          {/* Gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-card via-card/30 to-transparent" />
-
-          {/* Category badge on top of image */}
           {market.category && (
             <div className="absolute bottom-2 left-3">
-              <Badge variant="secondary" className="bg-background/80 backdrop-blur-sm text-xs">
+              <span className="rounded-full border border-border/40 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm">
                 {market.category}
-              </Badge>
+              </span>
             </div>
           )}
         </div>
       )}
 
-      <div className="p-4">
-        {/* Category badge when no image */}
+      <div className="flex flex-1 flex-col p-4">
+        {/* Category (no cover) */}
         {!market.imageUrl && market.category && (
-          <Badge variant="secondary" className="mb-2 text-xs">
+          <span className="mb-2 inline-block rounded-full border border-border/40 bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
             {market.category}
-          </Badge>
+          </span>
         )}
 
         {/* Question */}
-        <Link href={`/markets/${market.id}`} className="block">
-          <p className="line-clamp-2 text-sm font-medium leading-5 hover:text-primary transition-colors">
-            {market.question}
-          </p>
-        </Link>
+        <p className="line-clamp-2 flex-1 text-sm font-medium leading-snug">
+          {market.question}
+        </p>
 
-        {/* Volume */}
-        <p className="mt-1 text-[11px] text-muted-foreground">{market.volumeText ?? ""}</p>
+        <div className="mt-3 space-y-2">
 
-        {/* Progress */}
-        <div className="mt-3">
-          <div className="mb-1.5 flex justify-between text-[11px] text-muted-foreground">
-            <span className="text-emerald-400">{market.yesPct}%</span>
-            <span className="text-red-400">{100 - market.yesPct}%</span>
+          {/* ── Pool bar ── */}
+          {isYesNo ? (
+            /* 2 outcomes Yes/No — green/red bar */
+            <div>
+              <div className="mb-1.5 flex justify-between text-[11px]">
+                <span className="font-medium text-emerald-400">
+                  {outcomes[0].label} · {firstPct}%
+                </span>
+                <span className="text-red-400">
+                  {outcomes[1].label} · {secondPct}%
+                </span>
+              </div>
+              <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-red-500/40">
+                <div
+                  className="bg-emerald-500/80 transition-all"
+                  style={{ width: `${firstPct}%` }}
+                />
+              </div>
+            </div>
+          ) : outcomes.length >= 2 ? (
+            /* Multi-outcome — segmented bar + leading stat */
+            <div>
+              <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>
+                  Leading ·{" "}
+                  <span className="font-semibold text-primary">{leadingPct}%</span>
+                </span>
+                <span className="rounded-full border border-border/50 px-1.5 py-0.5 text-[10px]">
+                  {outcomes.length} options
+                </span>
+              </div>
+              {/* Segmented bar — each slice proportional to pool, opacity decreases */}
+              <div className="flex h-1.5 w-full gap-px overflow-hidden rounded-full bg-border/30">
+                {sorted.map((o, i) => {
+                  const pct = total > 0 ? (o.poolPoints / total) * 100 : 100 / sorted.length
+                  const opacity = Math.max(0.2, 1 - i * 0.15)
+                  return (
+                    <div
+                      key={o.id}
+                      className="bg-primary"
+                      style={{ width: `${pct}%`, opacity }}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Footer */}
+          <div className="flex items-center justify-between pt-0.5">
+            <span className="text-[11px] text-muted-foreground">
+              {market.volumeText ?? ""}
+            </span>
+            <span className="text-[11px] font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+              View →
+            </span>
           </div>
-          <Progress value={market.yesPct} />
-        </div>
 
-        {/* Buttons */}
-        <div className="mt-3 flex gap-2">
-          <Button asChild size="sm" className="h-8 flex-1 bg-emerald-500/90 text-white hover:bg-emerald-500">
-            <Link href={`/markets/${market.id}?side=YES`}>Oui</Link>
-          </Button>
-          <Button asChild size="sm" variant="destructive" className="h-8 flex-1">
-            <Link href={`/markets/${market.id}?side=NO`}>Non</Link>
-          </Button>
         </div>
       </div>
-    </div>
+    </Link>
   )
 }

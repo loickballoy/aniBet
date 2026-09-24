@@ -45,11 +45,10 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-1">
 
-          {/* Logo temporaire en texte seul — l'ancien logo (chibi Hakari, Jujutsu
-              Kaisen) a été retiré : utiliser un personnage sous licence comme
-              logo de marque est un risque de contrefaçon, pas juste une
-              question de style. À remplacer par un logo original/SVG maison
-              avant le lancement public. */}
+          {/* Temporary text-only logo — the old logo (chibi Hakari, Jujutsu
+              Kaisen) was removed: using a licensed character as a brand
+              logo is a real infringement risk, not just a style choice.
+              To replace with an original/custom SVG logo before public launch. */}
           <Link
             href="/"
             className="flex items-center gap-2 self-end"
@@ -93,7 +92,7 @@ export function SiteHeader() {
                 href="/profile"
                 className="rounded-xl border border-border/70 bg-background/30 px-3 py-2 text-sm hover:bg-muted transition"
               >
-                Profil
+                Profile
               </Link>*/}
               <button
                 onClick={logout}

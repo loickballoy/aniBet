@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation"
 
 const FORBIDDEN = /[^a-zA-Z0-9_\-\.]/
 function validate(val: string): string | null {
-  if (val.length < 3)  return "Au moins 3 caractères"
-  if (val.length > 24) return "Maximum 24 caractères"
-  if (FORBIDDEN.test(val)) return "Lettres, chiffres, _ - . uniquement"
+  if (val.length < 3)  return "At least 3 characters"
+  if (val.length > 24) return "Maximum 24 characters"
+  if (FORBIDDEN.test(val)) return "Letters, numbers, _ - . only"
   return null
 }
 
@@ -36,10 +36,10 @@ export default function SetupUsernamePage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ new_username: username }),
       })
-      if (!res.ok) throw new Error((await res.json())?.detail ?? "Erreur")
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Error")
       router.replace("/")
-    } catch (e: any) {
-      setError(e?.message ?? "Erreur")
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error")
     } finally {
       setLoading(false)
     }
@@ -54,14 +54,14 @@ export default function SetupUsernamePage() {
         <div className="mb-8 text-center">
           <span className="text-2xl font-bold tracking-tight">aniBet</span>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Bienvenue ! Choisis ton pseudo pour commencer 🎉
+            Welcome! Choose your username to get started 🎉
           </p>
         </div>
 
         <div className="rounded-2xl border border-border/60 bg-card/80 p-6 shadow-xl backdrop-blur-sm">
-          <h1 className="text-base font-semibold">Ton username</h1>
+          <h1 className="text-base font-semibold">Your username</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Visible par tous. Tu pourras le modifier depuis ton profil.
+            Visible to everyone. You can change it later from your profile.
           </p>
 
           <form onSubmit={submit} className="mt-5 space-y-4">
@@ -89,7 +89,7 @@ export default function SetupUsernamePage() {
                   : username.length >= 3 ? "text-emerald-400"
                   : "text-muted-foreground"
                 }`}>
-                  {error ?? validationError ?? (username.length >= 3 ? "✓ Format valide" : "Lettres, chiffres, _ - .")}
+                  {error ?? validationError ?? (username.length >= 3 ? "✓ Valid format" : "Letters, numbers, _ - .")}
                 </span>
                 <span className="text-[11px] text-muted-foreground">{username.length}/24</span>
               </div>
@@ -103,22 +103,22 @@ export default function SetupUsernamePage() {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                  Enregistrement…
+                  Saving…
                 </span>
-              ) : "Continuer →"}
+              ) : "Continue →"}
             </button>
           </form>
         </div>
 
         <p className="mt-4 text-center text-[11px] text-muted-foreground/50">
-          Tu peux aussi{" "}
+          You can also{" "}
           <button
             onClick={() => router.replace("/")}
             className="underline transition hover:text-muted-foreground"
           >
-            passer pour l'instant
+            skip for now
           </button>
-          {" "}et le définir depuis ton profil.
+          {" "}and set it from your profile.
         </p>
       </div>
     </main>

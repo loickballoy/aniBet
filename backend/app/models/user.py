@@ -19,5 +19,6 @@ class UserInLeaderboard(BaseModel):
     tier: str | None = None
     points_balance: int
     username: str
-    season_net_gain: int | None = None 
+    season_net_gain: int | None = None
+    pfp_url: str | None = None 
 

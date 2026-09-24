@@ -48,18 +48,18 @@ export function HeroCarousel({ items }: { items: Market[] }) {
                     </h2>
 
                     <p className="mt-2 text-sm text-muted-foreground">
-                      {m.yesPct}% Oui • {m.volumeText ?? ""}
+                      {m.yesPct}% Yes • {m.volumeText ?? ""}
                     </p>
 
                     <div className="mt-5 flex flex-wrap gap-2">
                       <Button asChild>
-                        <Link href={`/markets/${m.id}`}>Voir le marché</Link>
+                        <Link href={`/markets/${m.id}`}>View market</Link>
                       </Button>
                       <Button variant="outline" asChild>
-                        <Link href={`/markets/${m.id}?side=YES`}>Parier Oui</Link>
+                        <Link href={`/markets/${m.id}?side=YES`}>Bet Yes</Link>
                       </Button>
                       <Button variant="outline" asChild>
-                        <Link href={`/markets/${m.id}?side=NO`}>Parier Non</Link>
+                        <Link href={`/markets/${m.id}?side=NO`}>Bet No</Link>
                       </Button>
                     </div>
                   </div>

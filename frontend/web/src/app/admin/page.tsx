@@ -4,7 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
-import { ImageUpload } from "@/components/ui/ImageUpload"
+import { EditableImage } from "@/components/ui/EditableImage"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type User = { username: string; role: string }
@@ -30,12 +30,12 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  open: "Ouvert",
-  locked: "Verrouillé",
-  resolved_pending_dispute: "Résolu (fenêtre de dispute)",
-  disputed: "Contesté",
-  resolved: "Payé",
-  cancelled: "Annulé",
+  open: "Open",
+  locked: "Locked",
+  resolved_pending_dispute: "Resolved (Dispute Window)",
+  disputed: "Contested",
+  resolved: "Paid",
+  cancelled: "Cancelled",
 }
 
 function Badge({ status }: { status: string }) {
@@ -106,7 +106,7 @@ function CreateEventForm({ series, token, API, onSuccess }: { series: Series[]; 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     const validOutcomes = outcomes.map((o) => o.trim()).filter(Boolean)
-    if (validOutcomes.length < 2) return alert("Au moins 2 outcomes requis")
+    if (validOutcomes.length < 2) return alert("At least 2 outcomes needed")
     setLoading(true)
     try {
       const res = await fetch(`${API}/events/`, {
@@ -132,23 +132,35 @@ function CreateEventForm({ series, token, API, onSuccess }: { series: Series[]; 
     <form onSubmit={submit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Input label="Titre *" value={title} onChange={(e) => setTitle(e.target.value)} required disabled={loading} placeholder="Ex: Luffy va vaincre Kizaru ?" />
+          <Input label="Title *" value={title} onChange={(e) => setTitle(e.target.value)} required disabled={loading} placeholder="Ex: Will luffy beat Kizaru ?" />
         </div>
         <div className="sm:col-span-2">
-          <Textarea label="Description" value={description} onChange={(e) => setDescription(e.target.value)} disabled={loading} placeholder="Contexte de l'événement…" />
+          <Textarea label="Description" value={description} onChange={(e) => setDescription(e.target.value)} disabled={loading} placeholder="event context, rules, etc…" />
         </div>
-        <Select label="Série" value={seriesId} onChange={(e) => setSeriesId(e.target.value)} disabled={loading}>
-          <option value="">— Aucune —</option>
+        <Select label="Serie" value={seriesId} onChange={(e) => setSeriesId(e.target.value)} disabled={loading}>
+          <option value="">— None —</option>
           {series.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </Select>
-        <Input label="Lock at (optionnel)" type="datetime-local" value={locksAt} onChange={(e) => setLocksAt(e.target.value)} disabled={loading} />
-        <Input label="Frais (basis points)" type="number" value={feeBps} onChange={(e) => setFeeBps(e.target.value)} min={0} max={1000} disabled={loading} />
+        <Input label="Lock at (optionnal)" type="datetime-local" value={locksAt} onChange={(e) => setLocksAt(e.target.value)} disabled={loading} />
+        <Input label="Fees (basis points)" type="number" value={feeBps} onChange={(e) => setFeeBps(e.target.value)} min={0} max={1000} disabled={loading} />
       </div>
-      <ImageUpload bucket="events" currentUrl={coverUrl} onUpload={setCoverUrl} label="Cover de l'event (optionnel)" disabled={loading} />
+        <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+          Event cover (optional)
+        </label>
+        <EditableImage
+          kind="event"
+          shape="cover"
+          currentUrl={coverUrl}
+          editable={!loading}
+          token={token}
+          API={API}
+          onUploaded={setCoverUrl}
+          className="h-36 w-full border-2 border-dashed border-border/50 bg-background/30"
+        />
       <div>
         <div className="mb-2 flex items-center justify-between">
           <label className="text-[11px] font-medium text-muted-foreground">Outcomes *</label>
-          <button type="button" onClick={addOutcome} className="text-[11px] text-primary hover:underline">+ Ajouter</button>
+          <button type="button" onClick={addOutcome} className="text-[11px] text-primary hover:underline">+ Add</button>
         </div>
         <div className="space-y-2">
           {outcomes.map((o, i) => (
@@ -160,7 +172,7 @@ function CreateEventForm({ series, token, API, onSuccess }: { series: Series[]; 
         </div>
       </div>
       <button type="submit" disabled={loading || !title} className="h-10 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
-        {loading ? "Création…" : "Créer l'event"}
+        {loading ? "Creation…" : "Create Event"}
       </button>
     </form>
   )
@@ -190,11 +202,25 @@ function CreateSeriesForm({ token, API, onSuccess }: { token: string; API: strin
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      <Input label="Nom *" value={name} onChange={(e) => { setName(e.target.value); setSlug(e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")) }} required disabled={loading} placeholder="One Piece" />
+      <Input label="Name *" value={name} onChange={(e) => { setName(e.target.value); setSlug(e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")) }} required disabled={loading} placeholder="One Piece" />
       <Input label="Slug *" value={slug} onChange={(e) => setSlug(e.target.value)} required disabled={loading} placeholder="one-piece" />
-      <ImageUpload bucket="series" currentUrl={coverUrl} onUpload={setCoverUrl} label="Cover de la série" disabled={loading} />
+      <div>
+        <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+          Series cover
+        </label>
+        <EditableImage
+          kind="series"
+          shape="cover"
+          currentUrl={coverUrl}
+          editable={!loading}
+          token={token}
+          API={API}
+          onUploaded={setCoverUrl}
+          className="h-36 w-full border-2 border-dashed border-border/50 bg-background/30"
+        />
+      </div>
       <button type="submit" disabled={loading || !name || !slug} className="h-10 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
-        {loading ? "Création…" : "Créer la série"}
+        {loading ? "Creation…" : "Create Series"}
       </button>
     </form>
   )
@@ -234,7 +260,7 @@ function ManageSeries({ series, token, API, onRefresh, notify }: { series: Serie
 
   return (
     <div className="space-y-3">
-      {series.length === 0 && <p className="text-sm text-muted-foreground">Aucune série.</p>}
+      {series.length === 0 && <p className="text-sm text-muted-foreground">No Series</p>}
       {series.map((s) => (
         <div key={s.id} className="rounded-2xl border border-border/60 bg-background/30 p-4">
           <div className="flex items-start gap-4">
@@ -256,20 +282,23 @@ function ManageSeries({ series, token, API, onRefresh, notify }: { series: Serie
               </div>
               {editing === s.id ? (
                 <div className="mt-3 space-y-3">
-                  <ImageUpload
-                    bucket="series"
+                  <EditableImage
+                    kind="series"
+                    shape="cover"
                     currentUrl={coverUrls[s.id] ?? s.cover_url}
-                    onUpload={(url) => setCoverUrls({ ...coverUrls, [s.id]: url })}
-                    label="Nouvelle cover"
-                    disabled={saving === s.id}
+                    editable={saving !== s.id}
+                    token={token}
+                    API={API}
+                    onUploaded={(url) => setCoverUrls({ ...coverUrls, [s.id]: url })}
+                    className="h-36 w-full border-2 border-dashed border-border/50 bg-background/30"
                   />
                   <div className="flex gap-2">
                     <button onClick={() => saveCover(s.id)} disabled={saving === s.id || !coverUrls[s.id]}
                       className="rounded-xl bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50">
-                      {saving === s.id ? "…" : "Sauvegarder"}
+                      {saving === s.id ? "…" : "Save"}
                     </button>
                     <button onClick={() => setEditing(null)} className="rounded-xl border border-border/60 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
-                      Annuler
+                      Cancel
                     </button>
                   </div>
                 </div>
@@ -277,11 +306,11 @@ function ManageSeries({ series, token, API, onRefresh, notify }: { series: Serie
                 <div className="mt-2 flex gap-2">
                   <button onClick={() => setEditing(s.id)}
                     className="rounded-xl border border-border/60 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition">
-                    🖼 {s.cover_url ? "Changer la cover" : "Ajouter une cover"}
+                    🖼 {s.cover_url ? "Change Cover" : "Add Cover"}
                   </button>
                   <button onClick={() => deleteSeries(s.id, s.name)}
                     className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/20 transition">
-                    Supprimer
+                    Delete
                   </button>
                 </div>
               )}
@@ -338,34 +367,46 @@ function CreateBingoForm({ series, token, API, onSuccess }: { series: Series[]; 
     <form onSubmit={submit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Input label="Titre *" value={title} onChange={(e) => setTitle(e.target.value)} required disabled={loading} placeholder="Ex: One Piece ch.1120 Bingo" />
+          <Input label="Title *" value={title} onChange={(e) => setTitle(e.target.value)} required disabled={loading} placeholder="Ex: One Piece ch.1120 Bingo" />
         </div>
-        <Select label="Série" value={seriesId} onChange={(e) => setSeriesId(e.target.value)} disabled={loading}>
-          <option value="">— Aucune —</option>
+        <Select label="Series" value={seriesId} onChange={(e) => setSeriesId(e.target.value)} disabled={loading}>
+          <option value="">— None —</option>
           {series.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </Select>
-        <Input label="Numéro de chapitre" type="number" value={chapterNumber} onChange={(e) => setChapterNumber(e.target.value)} disabled={loading} placeholder="Ex: 1120" />
-        <Input label="Ouverture (optionnel)" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} disabled={loading} />
-        <Input label="Fermeture *" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} required disabled={loading} />
+        <Input label="Chapter Number" type="number" value={chapterNumber} onChange={(e) => setChapterNumber(e.target.value)} disabled={loading} placeholder="Ex: 1120" />
+        <Input label="Opens_at (optionnal)" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} disabled={loading} />
+        <Input label="Closes_at *" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} required disabled={loading} />
       </div>
-      <ImageUpload bucket="bingo" currentUrl={coverUrl} onUpload={setCoverUrl} label="Cover du bingo (optionnel)" disabled={loading} />
+        <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+          Bingo cover (optional)
+        </label>
+        <EditableImage
+          kind="bingo"
+          shape="cover"
+          currentUrl={coverUrl}
+          editable={!loading}
+          token={token}
+          API={API}
+          onUploaded={setCoverUrl}
+          className="h-36 w-full border-2 border-dashed border-border/50 bg-background/30"
+        />
       <div>
         <div className="mb-2 flex items-center justify-between">
           <label className="text-[11px] font-medium text-muted-foreground">Items *</label>
-          <button type="button" onClick={addItem} className="text-[11px] text-primary hover:underline">+ Ajouter</button>
+          <button type="button" onClick={addItem} className="text-[11px] text-primary hover:underline">+ Add</button>
         </div>
         <div className="space-y-2">
           {items.map((it, i) => (
             <div key={i} className="flex gap-2">
-              <input className="h-10 flex-1 rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none transition focus:border-primary/50" value={it} onChange={(e) => setItem(i, e.target.value)} placeholder={`Item ${i + 1} — ex: Un personnage meurt`} disabled={loading} />
+              <input className="h-10 flex-1 rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none transition focus:border-primary/50" value={it} onChange={(e) => setItem(i, e.target.value)} placeholder={`Item ${i + 1} — ex: A Character dies`} disabled={loading} />
               {items.length > 2 && <button type="button" onClick={() => removeItem(i)} className="rounded-xl border border-border/70 px-3 text-xs text-muted-foreground hover:text-red-400">✕</button>}
             </div>
           ))}
         </div>
-        <p className="mt-1.5 text-[11px] text-muted-foreground">Les utilisateurs pourront choisir jusqu'à 3 items parmi cette liste.</p>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">Users will be allowed to choose up to 3 items in this list</p>
       </div>
       <button type="submit" disabled={loading || !title || !closesAt} className="h-10 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
-        {loading ? "Création…" : "Créer le bingo"}
+        {loading ? "Creation…" : "Create bingo"}
       </button>
     </form>
   )
@@ -390,8 +431,8 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
   async function resolveEvent(event: Event) {
     const winnerId = winnerIds[event.id]
     const evidenceUrl = (evidenceUrls[event.id] ?? "").trim()
-    if (!winnerId) return alert("Choisis l'outcome gagnant")
-    if (!evidenceUrl) return alert("Un lien de preuve est requis — c'est ce qui rend la résolution contestable/vérifiable")
+    if (!winnerId) return alert("Choose Winning Outcome")
+    if (!evidenceUrl) return alert("A link to proof is required")
 
     const res = await fetch(`${API}/events/${event.id}/resolve`, {
       method: "POST",
@@ -408,7 +449,7 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
   }
 
   async function finalizePayout(event: Event) {
-    if (!confirm(`Finaliser le paiement pour "${event.title}" ? Cette action distribue les gains et ne peut pas être annulée.`)) return
+    if (!confirm(`Finalize payout for "${event.title}" ? This action spreads gains and cannot be cancelled`)) return
     setFinalizing(event.id)
     try {
       const res = await fetch(`${API}/events/${event.id}/finalize-payout`, {
@@ -440,11 +481,11 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
         {["all", "open", "locked", "resolved_pending_dispute", "disputed", "resolved"].map((s) => (
           <button key={s} onClick={() => setFilter(s)}
             className={`rounded-full border px-3 py-1 text-xs font-medium transition ${filter === s ? "border-primary bg-primary/15 text-primary" : "border-border/60 text-muted-foreground hover:text-foreground"}`}>
-            {s === "all" ? "Tous" : (STATUS_LABEL[s] ?? s)}
+            {s === "all" ? "All" : (STATUS_LABEL[s] ?? s)}
           </button>
         ))}
       </div>
-      {filtered.length === 0 && <p className="text-sm text-muted-foreground">Aucun event.</p>}
+      {filtered.length === 0 && <p className="text-sm text-muted-foreground">No Event</p>}
       <div className="space-y-3">
         {filtered.map((event) => (
           <div key={event.id} className="rounded-2xl border border-border/60 bg-background/30 p-4">
@@ -467,17 +508,17 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
                   <button onClick={() => lockEvent(event.id)} className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-400 hover:bg-yellow-500/20 transition">🔒 Lock</button>
                 )}
                 {(event.status === "open" || event.status === "locked") && (
-                  <button onClick={() => setResolving(resolving === event.id ? null : event.id)} className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-500/20 transition">✓ Résoudre</button>
+                  <button onClick={() => setResolving(resolving === event.id ? null : event.id)} className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-500/20 transition">✓ Resolve</button>
                 )}
                 {event.status === "resolved_pending_dispute" && (
                   <button onClick={() => finalizePayout(event)} disabled={finalizing === event.id}
                     className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/20 transition disabled:opacity-50">
-                    {finalizing === event.id ? "…" : "💰 Finaliser le paiement"}
+                    {finalizing === event.id ? "…" : "💰 Confirm payment"}
                   </button>
                 )}
                 {event.status === "disputed" && (
                   <span className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
-                    ⚠ Litige en cours — paiement bloqué
+                    ⚠ Ongoing Litigation — payment blocked
                   </span>
                 )}
                 <button onClick={() => toggleCarousel(event)} disabled={carouselLoading === event.id}
@@ -488,7 +529,7 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
             </div>
             {resolving === event.id && (
               <div className="mt-3 rounded-xl border border-border/50 bg-background/40 p-3">
-                <p className="mb-2 text-xs text-muted-foreground font-medium">Outcome gagnant :</p>
+                <p className="mb-2 text-xs text-muted-foreground font-medium">Winning Outcome :</p>
                 <div className="flex flex-wrap gap-2">
                   {event.outcomes.map((o) => (
                     <button key={o.id} type="button" onClick={() => setWinnerIds({ ...winnerIds, [event.id]: String(o.id) })}
@@ -499,7 +540,7 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
                 </div>
                 <div className="mt-3">
                   <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-                    Lien de preuve * — un chapitre, un tweet officiel, une capture&hellip; n&apos;importe quoi de vérifiable
+                    Proof Link * — a chapter, an official tweet, a screenshot or anything that can be verified.
                   </label>
                   <input
                     className="h-9 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-xs outline-none transition focus:border-primary/50"
@@ -509,11 +550,11 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
                   />
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground/70">
-                  La résolution ouvre une fenêtre de dispute — le paiement ne partira qu&apos;après avoir cliqué séparément sur « Finaliser le paiement », une fois sûr qu&apos;aucun litige n&apos;est en cours.
+                  Resolution opens a Dispute Window. Payment will happen after clicking « Confirm payment », once no litigation is ongoing
                 </p>
                 <button onClick={() => resolveEvent(event)} disabled={!winnerIds[event.id] || !(evidenceUrls[event.id] ?? "").trim()}
                   className="mt-3 rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50 transition">
-                  Confirmer la résolution
+                  Confirm Resolution
                 </button>
               </div>
             )}
@@ -570,11 +611,11 @@ export default function AdminPage() {
   if (!user) return null
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: "create-event",  label: "➕ Créer un event" },
-    { id: "manage-events", label: "⚙️ Gérer les events" },
-    { id: "create-series", label: "📚 Nouvelle série" },
-    { id: "manage-series", label: "🖼 Gérer les séries" },
-    { id: "create-bingo",  label: "🎯 Créer un bingo" },
+    { id: "create-event",  label: "➕ Create an event" },
+    { id: "manage-events", label: "⚙️ Handle events" },
+    { id: "create-series", label: "📚 New series" },
+    { id: "manage-series", label: "🖼 Handle series" },
+    { id: "create-bingo",  label: "🎯 Create a bingo" },
   ]
 
   return (
@@ -583,8 +624,8 @@ export default function AdminPage() {
       <main className="mx-auto w-full max-w-4xl px-4 py-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Panel Admin</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">Connecté en tant que <span className="text-primary font-medium">{user.username}</span></p>
+            <h1 className="text-2xl font-bold tracking-tight">Admin Panel</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">Logged in as <span className="text-primary font-medium">{user.username}</span></p>
           </div>
           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Retour</Link>
         </div>
@@ -601,37 +642,37 @@ export default function AdminPage() {
         <div className="rounded-2xl border border-border/60 bg-card/60 p-6 backdrop-blur-sm">
           {tab === "create-event" && (
             <>
-              <h2 className="mb-4 text-base font-semibold">Créer un event</h2>
-              <CreateEventForm series={series} token={token} API={API} onSuccess={() => { notify("Event créé ✓"); loadData() }} />
+              <h2 className="mb-4 text-base font-semibold">Create an event</h2>
+              <CreateEventForm series={series} token={token} API={API} onSuccess={() => { notify("Event created ✓"); loadData() }} />
             </>
           )}
           {tab === "manage-events" && (
             <>
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-base font-semibold">Gérer les events</h2>
-                <button onClick={loadData} className="text-xs text-muted-foreground hover:text-foreground transition-colors">↺ Rafraîchir</button>
+                <h2 className="text-base font-semibold">Handle events</h2>
+                <button onClick={loadData} className="text-xs text-muted-foreground hover:text-foreground transition-colors">↺ Reload</button>
               </div>
-              <ManageEvents events={events} token={token} API={API} onRefresh={() => { loadData(); notify("Mis à jour ✓") }} />
+              <ManageEvents events={events} token={token} API={API} onRefresh={() => { loadData(); notify("Updated ✓") }} />
             </>
           )}
           {tab === "create-series" && (
             <>
-              <h2 className="mb-4 text-base font-semibold">Créer une série</h2>
-              <CreateSeriesForm token={token} API={API} onSuccess={() => { notify("Série créée ✓"); loadData() }} />
+              <h2 className="mb-4 text-base font-semibold">Add a Series</h2>
+              <CreateSeriesForm token={token} API={API} onSuccess={() => { notify("Serie created ✓"); loadData() }} />
             </>
           )}
           {tab === "manage-series" && (
             <>
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-base font-semibold">Gérer les séries</h2>
-                <button onClick={loadData} className="text-xs text-muted-foreground hover:text-foreground transition-colors">↺ Rafraîchir</button>
+                <h2 className="text-base font-semibold">Handle Series</h2>
+                <button onClick={loadData} className="text-xs text-muted-foreground hover:text-foreground transition-colors">↺ Reload</button>
               </div>
               <ManageSeries series={series} token={token} API={API} onRefresh={loadData} notify={notify} />
             </>
           )}
           {tab === "create-bingo" && (
             <>
-              <h2 className="mb-4 text-base font-semibold">Créer un bingo</h2>
+              <h2 className="mb-4 text-base font-semibold">Create a bingo</h2>
               <CreateBingoForm series={series} token={token} API={API} onSuccess={() => { notify("Bingo créé ✓") }} />
             </>
           )}

@@ -110,7 +110,7 @@ function LoginContent() {
       router.push(next)
       router.refresh()
     } catch (err: any) {
-      setError(err?.message ?? "Erreur login")
+      setError(err?.message ?? "Login Error")
     } finally {
       setLoading(false)
     }
@@ -137,12 +137,12 @@ function LoginContent() {
         try { msg = JSON.parse(txt)?.detail ?? txt } catch {}
         throw new Error(msg || `Erreur (${res.status})`)
       }
-      setSuccess("Compte créé ! Tu peux te connecter dès maintenant.")
+      setSuccess("Account Created ! You can login right now.")
       setSignupEmail("")
       setSignupUsername("")
       setSignupPassword("")
     } catch (err: any) {
-      setError(err?.message ?? "Erreur inscription")
+      setError(err?.message ?? "SignUp Error")
     } finally {
       setLoading(false)
     }
@@ -173,7 +173,7 @@ function LoginContent() {
       {/* Back link */}
       <div className="mb-6 w-full max-w-sm">
         <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-          ← Retour
+          ← Back
         </Link>
       </div>
 
@@ -187,7 +187,7 @@ function LoginContent() {
             <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">BETA</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {tab === "login" ? "Content de te revoir 👋" : "Rejoins la communauté 🎌"}
+            {tab === "login" ? "Happy to see you again 👋" : "Join the community 🎌"}
           </p>
         </div>
 
@@ -200,7 +200,7 @@ function LoginContent() {
             className="flex h-10 w-full items-center justify-center gap-2.5 rounded-xl border border-border/70 bg-background/50 text-sm font-medium transition hover:bg-muted disabled:opacity-60"
           >
             <GoogleIcon />
-            Continuer avec Google
+            Continue with Google
           </button>
 
           {/* Discord button */}
@@ -211,7 +211,7 @@ function LoginContent() {
             className="mt-2 flex h-10 w-full items-center justify-center gap-2.5 rounded-xl border border-border/70 bg-background/50 text-sm font-medium transition hover:bg-muted disabled:opacity-60"
           >
             <DiscordIcon />
-            Continuer avec Discord
+            Continue with Discord
           </button>
 
           {/* Divider */}
@@ -234,7 +234,7 @@ function LoginContent() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {t === "login" ? "Connexion" : "Inscription"}
+                {t === "login" ? "Log In" : "Sign Up"}
               </button>
             ))}
           </div>
@@ -254,7 +254,7 @@ function LoginContent() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-[11px] text-muted-foreground">Mot de passe</label>
+                <label className="mb-1.5 block text-[11px] text-muted-foreground">Password</label>
                 <input
                   type="password"
                   className="h-10 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
@@ -271,7 +271,7 @@ function LoginContent() {
                 disabled={loading}
                 className="mt-1 h-10 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-60"
               >
-                {loading ? "…" : "Se connecter"}
+                {loading ? "…" : "Log In"}
               </button>
             </form>
           )}
@@ -280,7 +280,7 @@ function LoginContent() {
           {tab === "signup" && (
             <form onSubmit={handleSignup} className="fade-in space-y-3">
               <div>
-                <label className="mb-1.5 block text-[11px] text-muted-foreground">Email</label>
+                <label className="mb-1.5 block text-[11px] text-muted-foreground">E-mail</label>
                 <input
                   type="email"
                   className="h-10 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
@@ -303,7 +303,7 @@ function LoginContent() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-[11px] text-muted-foreground">Mot de passe</label>
+                <label className="mb-1.5 block text-[11px] text-muted-foreground">Password</label>
                 <input
                   type="password"
                   className="h-10 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
@@ -316,12 +316,12 @@ function LoginContent() {
               </div>
 
               {/* Notice */}
-              <div className="flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
+              {/* <div className="flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
                 <span className="mt-0.5 text-xs">🎌</span>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
                   Ton compte est actif immédiatement après l'inscription — pas d'email à confirmer.
                 </p>
-              </div>
+              </div> */}
 
               {error && <ErrorBox msg={error} />}
               {success && (
@@ -334,7 +334,7 @@ function LoginContent() {
                 disabled={loading}
                 className="mt-1 h-10 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-60"
               >
-                {loading ? "…" : "Créer mon compte"}
+                {loading ? "…" : "Create your account"}
               </button>
             </form>
           )}
@@ -342,7 +342,7 @@ function LoginContent() {
       </div>
 
       <p className="mt-4 text-[11px] text-muted-foreground/60">
-        En continuant, tu acceptes nos conditions d'utilisation.
+        By continuing, you accept the Terms of Service.
       </p>
     </main>
   )

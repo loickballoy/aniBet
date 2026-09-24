@@ -25,10 +25,9 @@ export function ImageUpload({ currentUrl, onUpload, label = "Cover image", disab
     <div>
       <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">{label}</label>
 
-      {/* Preview area — pas cliquable : l'upload de fichier direct dépendait
-          de Supabase Storage (compte perdu), retiré. Seule la saisie d'URL
-          fonctionne pour l'instant, en attendant une vraie solution de
-          stockage pour le déploiement. */}
+      {/* Preview area — not clickable: direct file upload depended on
+          Supabase Storage (account lost), removed. Only URL input works
+          for now, until a real storage solution is set up for deployment. */}
       <div className="mb-2 flex h-36 w-full items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-border/50 bg-background/30">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -38,7 +37,7 @@ export function ImageUpload({ currentUrl, onUpload, label = "Cover image", disab
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="opacity-50">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            <span className="text-[11px]">Colle une URL d&apos;image ci-dessous</span>
+            <span className="text-[11px]">Paste an image URL below</span>
           </div>
         )}
       </div>

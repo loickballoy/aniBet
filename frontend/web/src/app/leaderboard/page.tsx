@@ -10,6 +10,7 @@ type Row = {
   username: string
   points_balance: number
   tier: string
+  pfp_url: string | null
 }
 
 // ── Tiers config ──────────────────────────────────────────────────────────────
@@ -218,17 +219,14 @@ function Podium({ rows }: { rows: Row[] }) {
             {/* Avatar + name */}
             <div className="flex flex-col items-center gap-1.5">
               <div
-                className="flex shrink-0 items-center justify-center rounded-full bg-primary/15 font-bold text-primary ring-2"
+                className="rounded-full"
                 style={{
-                  width: cfg.avatarSize,
-                  height: cfg.avatarSize,
-                  fontSize: cfg.avatarSize * 0.38,
                   boxShadow: isFirst
                     ? "0 0 20px rgba(250,204,21,0.15), 0 0 0 2px rgba(250,204,21,0.3)"
                     : "0 0 0 2px rgba(99,102,241,0.2)",
                 }}
               >
-                {row.username?.[0]?.toUpperCase() ?? "?"}
+                <Avatar username={row.username} pfpUrl={row.pfp_url} size={cfg.avatarSize} ringClass=""/>
               </div>
               <div className="text-center">
                 <div
@@ -325,6 +323,7 @@ export default function LeaderboardPage() {
           username: r.username ?? "—",
           points_balance: r.points_balance ?? 0,
           tier: r.tier ?? "Iron",
+          pfp_url: r.pfp_url ?? null,
         }))
         setRows(mapped)
       })
@@ -374,16 +373,16 @@ export default function LeaderboardPage() {
         {/* ── Header ── */}
         <div className="mb-8 flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Classement</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Leaderboard</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Top 50 joueurs · mis à jour en temps réel
+              Top 50 players · updated live
             </p>
           </div>
           <Link
             href="/"
             className="rounded-xl border border-border/50 bg-background/30 px-3 py-2 text-xs text-muted-foreground backdrop-blur-sm transition hover:border-border hover:text-foreground"
           >
-            ← Retour
+            ← Back
           </Link>
         </div>
 
@@ -400,7 +399,7 @@ export default function LeaderboardPage() {
               />
 
               <div className="flex-1 min-w-0">
-                <div className="text-xs text-muted-foreground">Ton classement</div>
+                <div className="text-xs text-muted-foreground">Your Rank</div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-xl font-bold text-primary">#{myRank}</span>
                   <span className="text-sm font-medium truncate">{myUsername}</span>
@@ -457,7 +456,7 @@ export default function LeaderboardPage() {
                     : "border-border/50 bg-background/30 text-muted-foreground hover:border-border hover:text-foreground"
                 }`}
               >
-                Tous
+                All
               </button>
               {TIERS.slice()
                 .reverse()
@@ -485,7 +484,7 @@ export default function LeaderboardPage() {
                   #
                 </div>
                 <div className="col-span-6 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                  Joueur
+                  Player
                 </div>
                 <div className="col-span-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                   Tier
@@ -498,7 +497,7 @@ export default function LeaderboardPage() {
               <div className="divide-y divide-border/25">
                 {filtered.length === 0 ? (
                   <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-                    Aucun joueur dans ce tier.
+                    No player in this Tier.
                   </div>
                 ) : (
                   filtered.map((row, idx) => {
@@ -548,7 +547,7 @@ export default function LeaderboardPage() {
                             {row.username}
                             {isMe && (
                               <span className="ml-1.5 text-[10px] text-primary/50 font-normal">
-                                (toi)
+                                (you)
                               </span>
                             )}
                           </span>
@@ -578,9 +577,9 @@ export default function LeaderboardPage() {
             {!myUsername && (
               <p className="mt-5 text-center text-xs text-muted-foreground">
                 <Link href="/login" className="text-primary hover:underline">
-                  Connecte-toi
+                  Log In
                 </Link>{" "}
-                pour voir ton rang et concourir.
+                to see your rank and compete
               </p>
             )}
           </>

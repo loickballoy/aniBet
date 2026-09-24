@@ -34,7 +34,7 @@ def _get_lifetime_leaderboard(limit, offset):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT username, points_balance FROM "User"
+                SELECT username, points_balance, pfp_url FROM "User"
                 WHERE role NOT IN ('admin', 'owner')
                 ORDER BY points_balance DESC
                 LIMIT %s OFFSET %s
@@ -55,7 +55,7 @@ def _get_live_season_leaderboard(season, limit, offset):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT u.username, u.points_balance,
+                SELECT u.username, u.points_balance, u.pfp_url,
                        COALESCE(SUM(pt.amount), 0)::integer AS season_net_gain
                 FROM "User" u
                 LEFT JOIN point_transactions pt

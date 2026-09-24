@@ -48,7 +48,7 @@ export default function BingoGrid({ cards, series }: Props) {
         <section className="mb-8">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <h3 className="text-lg font-semibold">Séries</h3>
+              <h3 className="text-lg font-semibold">Series</h3>
               {activeSeries && (
                 <button
                   onClick={() => setActiveSeries(null)}
@@ -115,7 +115,7 @@ export default function BingoGrid({ cards, series }: Props) {
                       {/* Active badge */}
                       {isActive && (
                         <div className="absolute right-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow">
-                          actif
+                          active
                         </div>
                       )}
 
@@ -152,7 +152,7 @@ export default function BingoGrid({ cards, series }: Props) {
             <h3 className="text-lg font-semibold">
               {activeSeries
                 ? series.find((s) => s.id === activeSeries)?.name ?? "Bingos"
-                : "Tous les bingos"}
+                : "All bingos"}
             </h3>
             <span className="text-xs text-muted-foreground">
               {filtered.length} bingo{filtered.length > 1 ? "s" : ""}
@@ -163,13 +163,13 @@ export default function BingoGrid({ cards, series }: Props) {
         {filtered.length === 0 ? (
           <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-2xl border border-border/50 bg-card/40">
             <p className="text-sm text-muted-foreground">
-              Aucun bingo pour cette série pour l'instant.
+              No Bingo for this Series yet.
             </p>
             <button
               onClick={() => setActiveSeries(null)}
               className="text-xs text-primary hover:underline"
             >
-              Voir tous les bingos
+              See all Bingos
             </button>
           </div>
         ) : (

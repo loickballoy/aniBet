@@ -107,7 +107,7 @@ export default function BingoClient({ id }: { id: string }) {
   }, [id, token])
 
   function toggle(itemId: number) {
-    if (!token) { setError("Connecte-toi pour sélectionner."); return }
+    if (!token) { setError("Log In to select."); return }
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(itemId)) { next.delete(itemId); return next }
@@ -118,9 +118,9 @@ export default function BingoClient({ id }: { id: string }) {
   }
 
   async function submit() {
-    if (!token) { setError("Connecte-toi pour soumettre."); return }
+    if (!token) { setError("Log In to submit."); return }
     const selectedIds = Array.from(selected)
-    if (selectedIds.length === 0) { setError("Sélectionne au moins 1 item."); return }
+    if (selectedIds.length === 0) { setError("Select at least 1 item."); return }
     setSaving(true); setError(null)
     try {
       const res = await fetch(`/api/bingo/${encodeURIComponent(id)}/entry`, {
@@ -134,7 +134,7 @@ export default function BingoClient({ id }: { id: string }) {
       setMyEntry(entry)
       setSelected(new Set(entry.selected_item_ids))
     } catch (e: any) {
-      setError(e?.message ?? "Erreur submit")
+      setError(e?.message ?? "Submit Error")
     } finally {
       setSaving(false)
     }
@@ -153,7 +153,7 @@ export default function BingoClient({ id }: { id: string }) {
     <div className="flex h-[60vh] items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="text-xs text-muted-foreground">Chargement…</p>
+        <p className="text-xs text-muted-foreground">Loading...</p>
       </div>
     </div>
   )
@@ -202,7 +202,7 @@ export default function BingoClient({ id }: { id: string }) {
                     </h1>
                     {card.closes_at && (
                       <p className="mt-1 text-xs text-white/50">
-                        Clôture · {formatDate(card.closes_at)}
+                        Closing · {formatDate(card.closes_at)}
                       </p>
                     )}
                   </div>
@@ -217,7 +217,7 @@ export default function BingoClient({ id }: { id: string }) {
                   <h1 className="text-xl font-bold sm:text-2xl">{card.title}</h1>
                   {card.closes_at && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Clôture · {formatDate(card.closes_at)}
+                      Closing · {formatDate(card.closes_at)}
                     </p>
                   )}
                 </div>
@@ -246,14 +246,14 @@ export default function BingoClient({ id }: { id: string }) {
                   color={userHits > 0 ? "text-primary" : "text-muted-foreground"}
                 />
                 <StatPill
-                  label="AniCoins gagnés"
+                  label="won AniCoins"
                   value={myEntry.coins_earned ? `+${myEntry.coins_earned}` : "0"}
                   color={myEntry.coins_earned ? "text-yellow-400" : "text-muted-foreground"}
                 />
               </>
             ) : (
               <div className="col-span-2 flex items-center justify-center rounded-2xl border border-border/40 bg-card/30 px-4 py-3 text-xs text-muted-foreground">
-                Tu n'as pas participé à ce bingo
+                You did not enter this bingo
               </div>
             )}
           </div>
@@ -266,25 +266,25 @@ export default function BingoClient({ id }: { id: string }) {
               ✓
             </span>
             <p className="text-sm text-emerald-400">
-              Participation enregistrée ·{" "}
+              Entry saved ·{" "}
               <span className="font-semibold">
                 {myEntry.selected_item_ids.length} item{myEntry.selected_item_ids.length > 1 ? "s" : ""}
               </span>{" "}
-              sélectionné{myEntry.selected_item_ids.length > 1 ? "s" : ""}
+              selected{myEntry.selected_item_ids.length > 1 ? "s" : ""}
             </p>
           </div>
         )}
 
         {!token && (
           <div className="rounded-2xl border border-border/50 bg-card/30 px-4 py-3 text-sm text-muted-foreground backdrop-blur-sm">
-            <a href="/login" className="text-primary hover:underline font-medium">Connecte-toi</a>{" "}
-            pour participer au bingo.
+            <a href="/login" className="text-primary hover:underline font-medium">Log In</a>{" "}
+            to play this bingo.
           </div>
         )}
 
         {isClosed && !myEntry && token && (
           <div className="rounded-2xl border border-border/40 bg-card/20 px-4 py-3 text-sm text-muted-foreground">
-            Ce bingo est terminé — les participations ne sont plus acceptées.
+            This bingo is over — Entries are no longer accepted.
           </div>
         )}
 
@@ -292,7 +292,7 @@ export default function BingoClient({ id }: { id: string }) {
         {!isClosed && token && (
           <div className="flex items-center justify-between gap-4 rounded-2xl border border-border/50 bg-card/50 px-5 py-3.5 backdrop-blur-sm">
             <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Sélection</span>
+              <span className="text-sm text-muted-foreground">Selected</span>
               <div className="flex gap-1.5">
                 {[0, 1, 2].map((i) => (
                   <div

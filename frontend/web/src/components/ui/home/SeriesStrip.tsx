@@ -40,7 +40,7 @@ export function SeriesStrip({ series }: { series: Series[] }) {
     <section className="mt-10">
       <div className="mb-4 flex items-end justify-between">
         <div className="flex items-center gap-3">
-          <h3 className="text-lg font-semibold">Séries</h3>
+          <h3 className="text-lg font-semibold">Series</h3>
           {activeSeries && (
             <button
               onClick={() => router.push("/")}
@@ -51,7 +51,7 @@ export function SeriesStrip({ series }: { series: Series[] }) {
             </button>
           )}
         </div>
-        <span className="text-xs text-muted-foreground">{series.length} série{series.length > 1 ? "s" : ""}</span>
+        <span className="text-xs text-muted-foreground">{series.length} series</span>
       </div>
 
       <div className="relative">
@@ -102,7 +102,7 @@ export function SeriesStrip({ series }: { series: Series[] }) {
                   {/* Active badge */}
                   {isActive && (
                     <div className="absolute top-2 right-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow">
-                      actif
+                      active
                     </div>
                   )}
 

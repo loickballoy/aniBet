@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "aniBet — Prédictions anime & manga",
-  description: "Parie tes AniCoins sur les prochains rebondissements de tes anime et manga préférés.",
+  title: "aniBet — Anime & Manga Predictions",
+  description: "Bet your AniCoins on what happens next in your favorite anime and manga.",
 };
 
 export default function RootLayout({

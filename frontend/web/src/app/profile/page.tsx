@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
-import { AvatarUpload } from "@/components/ui/AvatarUpload"
+import { EditableImage } from "@/components/ui/EditableImage"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type User = {
@@ -53,10 +53,10 @@ function formatDate(iso: string) {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  bet_placed: "Pari placé",
-  bet_won: "Pari gagné",
+  bet_placed: "Place Bet",
+  bet_won: "Won Bet",
   bingo_reward: "Bingo",
-  refund: "Remboursement",
+  refund: "Refund",
 }
 
 const KIND_COLOR: Record<string, string> = {
@@ -78,7 +78,7 @@ function BalanceChart({ data }: { data: Transaction[] }) {
   if (data.length < 2) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        Pas encore assez de données
+        Not enough data
       </div>
     )
   }
@@ -168,9 +168,9 @@ function UsernameEditor({
   async function save() {
     const trimmed = value.trim()
     if (!trimmed || trimmed === username) { setEditing(false); return }
-    if (trimmed.length < 3) { setError("3 caractères minimum"); return }
-    if (trimmed.length > 24) { setError("24 caractères maximum"); return }
-    if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) { setError("Lettres, chiffres, _ et - uniquement"); return }
+    if (trimmed.length < 3) { setError("min 3 chars"); return }
+    if (trimmed.length > 24) { setError("max 24 chars"); return }
+    if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) { setError("Letters, numbers, _ and - only"); return }
 
     setSaving(true)
     setError(null)
@@ -206,7 +206,7 @@ function UsernameEditor({
         <h1 className="text-2xl font-bold tracking-tight">{username}</h1>
         <button
           onClick={() => { setValue(username); setEditing(true) }}
-          title="Modifier le pseudo"
+          title="Change username"
           className="flex h-6 w-6 items-center justify-center rounded-lg border border-border/50 bg-background/30 text-muted-foreground transition hover:border-border hover:text-foreground"
         >
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
@@ -246,7 +246,7 @@ function UsernameEditor({
       </div>
       {error
         ? <p className="text-[11px] text-red-400">{error}</p>
-        : <p className="text-[11px] text-muted-foreground/50">↵ confirmer · Échap annuler</p>
+        : <p className="text-[11px] text-muted-foreground/50">↵ confirm · Esc to cancel</p>
       }
     </div>
   )
@@ -296,7 +296,7 @@ export default function ProfilePage() {
       <main className="flex min-h-[60vh] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Chargement…</p>
+          <p className="text-sm text-muted-foreground">Loading...</p>
         </div>
       </main>
     </>
@@ -308,7 +308,7 @@ export default function ProfilePage() {
       <main className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
           <p className="text-sm text-red-400">{error ?? "Utilisateur introuvable"}</p>
-          <Link href="/login" className="mt-3 inline-block text-sm text-primary hover:underline">Se connecter</Link>
+          <Link href="/login" className="mt-3 inline-block text-sm text-primary hover:underline">Log In</Link>
         </div>
       </main>
     </>
@@ -331,12 +331,36 @@ export default function ProfilePage() {
           <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/8 blur-3xl" />
 
           <div className="relative flex flex-wrap items-center gap-5">
-            <AvatarUpload
-              username={user.username}
+            <EditableImage
+              kind="avatar"
+              shape="circle"
               currentUrl={user.pfp_url}
+              editable={true}
               token={token}
               API={API}
-              onSaved={(url) => setUser({ ...user, pfp_url: url })}
+              onUploaded={async (url) =>{ 
+              try {
+                const res = await fetch(`${API}/auth/change-avatar`, {
+                  method: "PATCH",
+                  headers: {"Content-Type": "application/json", Authorization: `Bearer ${token}`},
+                  body: JSON.stringify({pfp_url: url}),
+                })
+                if (!res.ok) {
+                  const body = await res.text().catch(() => "")
+                  console.error("change-avatar failed:", res.status, body)
+                  return
+                }
+                setUser({ ...user, pfp_url: url})
+              } catch (err) {
+                console.error("change-avatar network error:", err)
+              }
+              }}
+              placeholder={
+                <span className="text-2xl font-bold">
+                  {user.username?.[0]?.toUpperCase() ?? "?"}
+                </span>
+              }
+              className="h-[72px] w-[72px] shrink-0 ring-2 ring-primary/30"
             />
 
             <div className="flex-1 min-w-0">
@@ -360,7 +384,7 @@ export default function ProfilePage() {
               <p className="mt-0.5 text-sm text-muted-foreground">{user.email}</p>
               {rank && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Classement global : <span className="font-semibold text-foreground">#{rank}</span>
+                  Global Ranking: <span className="font-semibold text-foreground">#{rank}</span>
                 </p>
               )}
             </div>
@@ -375,15 +399,15 @@ export default function ProfilePage() {
         {/* ── Stats row ── */}
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Winrate" value={winrate?.winrate != null ? `${winrate.winrate}%` : "—"} sub={winrate ? `${winrate.won}W / ${winrate.lost}L` : undefined} />
-          <StatCard label="Paris totaux" value={String(winrate?.total ?? 0)} sub="résolus" />
-          <StatCard label="P&L net" value={`${isUp ? "+" : ""}${formatPts(pnl)}`} sub="depuis le début" />
-          <StatCard label="Transactions" value={String(transactions.length)} sub="au total" />
+          <StatCard label="Total Bets" value={String(winrate?.total ?? 0)} sub="resolved" />
+          <StatCard label="net P&L" value={`${isUp ? "+" : ""}${formatPts(pnl)}`} sub="since beginning" />
+          <StatCard label="Transactions" value={String(transactions.length)} sub="total" />
         </div>
 
         {/* ── Balance chart ── */}
         <div className="mt-4 rounded-2xl border border-border/60 bg-card/60 p-5">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Évolution du solde</h2>
+            <h2 className="text-sm font-semibold">Balance evolution</h2>
             <span className={`text-xs font-medium ${isUp ? "text-emerald-400" : "text-red-400"}`}>
               {isUp ? "▲" : "▼"} {formatPts(Math.abs(pnl))} pts
             </span>
@@ -402,15 +426,15 @@ export default function ProfilePage() {
         {/* ── Bets + Transactions ── */}
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-border/60 bg-card/60 p-5">
-            <h2 className="mb-3 text-sm font-semibold">Historique des paris</h2>
+            <h2 className="mb-3 text-sm font-semibold">Bets History</h2>
             {bets.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Aucun pari pour l'instant.</p>
+              <p className="text-xs text-muted-foreground">No Bets yet</p>
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {bets.slice().reverse().map((bet) => (
                   <div key={bet.id} className="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/30 p-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">{bet.event_title ?? "Event inconnu"}</p>
+                      <p className="truncate text-xs font-medium">{bet.event_title ?? "Unknown Event"}</p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{bet.outcome_label ?? "—"}</p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -426,9 +450,9 @@ export default function ProfilePage() {
           </div>
 
           <div className="rounded-2xl border border-border/60 bg-card/60 p-5">
-            <h2 className="mb-3 text-sm font-semibold">Dernières transactions</h2>
+            <h2 className="mb-3 text-sm font-semibold">Latest transactions</h2>
             {transactions.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Aucune transaction.</p>
+              <p className="text-xs text-muted-foreground">No transaction yet</p>
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {transactions.slice().reverse().slice(0, 20).map((tx) => (
