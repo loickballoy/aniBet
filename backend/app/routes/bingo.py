@@ -7,6 +7,7 @@ from app.models.bingo import (
 )
 from app.utils import auth_utils
 from app.utils import bingo_utils
+from app.utils import moderation_utils
 
 user_dependency = auth_utils.user_dependency
 
@@ -61,7 +62,12 @@ async def submit_entry(card_id: int, request: SubmitBingoEntryRequest, current_u
 
 @BingoRouter.post("/", response_model=BingoCard, status_code=status.HTTP_201_CREATED)
 async def create_card(request: CreateBingoCardRequest, current_user: user_dependency):
-    if current_user.role != "admin":
+    user_id = auth_utils.get_user_id(current_user.username)
+    is_authorized = (
+        current_user.role in ("admin", "owner")
+        or (request.series_id is not None and moderation_utils.is_mod_for_series(user_id, request.series_id))
+    )
+    if not is_authorized:
         raise HTTPException(status_code=403, detail="Admin only")
     if len(request.items) < 2:
         raise HTTPException(status_code=400, detail="A card needs at least 2 items")
@@ -73,16 +79,21 @@ async def create_card(request: CreateBingoCardRequest, current_user: user_depend
         opens_at=request.opens_at,
         closes_at=request.closes_at,
         cover_url=request.cover_url,
-        created_by=auth_utils.get_user_id(current_user.username),
+        created_by=user_id,
         item_descriptions=request.items,
     )
  
  
 @BingoRouter.post("/{card_id}/resolve", status_code=status.HTTP_200_OK)
 async def resolve_card(card_id: int, request: ResolveBingoCardRequest, current_user: user_dependency):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    user_id = auth_utils.get_user_id(current_user.username)
     card = bingo_utils.get_bingo_card(card_id)
+    is_authorized = (
+        current_user.role in ("admin", "owner")
+        or (card.series_id is not None and moderation_utils.is_mod_for_series(user_id, card.series_id))
+    )
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="Admin only")
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     if card.status == "resolved":

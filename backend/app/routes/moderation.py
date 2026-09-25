@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.models.moderation import (
     EventProposal, ProposeEventRequest, ApproveProposalRequest,
-    GrantModScopeRequest, Notification,
+    GrantModScopeRequest, Notification, ProposeSeriesRequest
 )
 from app.models.event import EventWithOutcomes
 from app.utils import auth_utils
@@ -61,6 +61,41 @@ async def reject_proposal(proposal_id: int, current_user: user_dependency):
     moderation_utils.reject_proposal(proposal_id, auth_utils.get_user_id(current_user.username))
     return {"message": "Proposal rejected"}
 
+@ModerationRouter.post("/proposals/series", status_code=status.HTTP_201_CREATED)
+async def propose_series(request: ProposeSeriesRequest, current_user: user_dependency):
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="A series name is required")
+    return moderation_utils.propose_series(
+        proposed_by=auth_utils.get_user_id(current_user.username),
+        name=request.name.strip(),
+        description=request.description,
+        source_url=request.source_url,
+    )
+
+
+@ModerationRouter.get("/admin/series-proposals")
+async def list_series_proposals(current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return moderation_utils.get_pending_series_proposals()
+
+
+@ModerationRouter.post("/admin/series-proposals/{proposal_id}/approve", status_code=status.HTTP_201_CREATED)
+async def approve_series_proposal(proposal_id: int, current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    try:
+        return moderation_utils.approve_series_proposal(proposal_id, auth_utils.get_user_id(current_user.username))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@ModerationRouter.post("/admin/series-proposals/{proposal_id}/reject", status_code=status.HTTP_200_OK)
+async def reject_series_proposal(proposal_id: int, current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    moderation_utils.reject_series_proposal(proposal_id, auth_utils.get_user_id(current_user.username))
+    return {"message": "Proposal rejected"}
 
 # ---------------------------------------------------------------------------
 # Gestion des mod scopes — admin uniquement

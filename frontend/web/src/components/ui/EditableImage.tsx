@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-type Kind = "avatar" | "series" | "event" | "bingo"
+type Kind = "avatar" | "series" | "event" | "bingo" | "daily" | "weekly"
 
 type Props = {
   kind: Kind

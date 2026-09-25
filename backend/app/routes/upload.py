@@ -11,8 +11,8 @@ UploadsRouter = APIRouter(prefix="/uploads", tags=["uploads"])
 # "avatar" : n'importe quel utilisateur connecté peut uploader le sien.
 # Les autres kinds sont du contenu public (covers de séries/events/bingo),
 # réservé aux admins — cohérent avec le reste de l'API.
-ADMIN_ONLY_KINDS = {"series", "event", "bingo"}
-VALID_KINDS = {"avatar", "series", "event", "bingo"}
+ADMIN_ONLY_KINDS = {"series", "event", "bingo", "daily", "weekly"}
+VALID_KINDS = {"avatar", "series", "event", "bingo", "daily", "weekly"}
 
 
 class PresignRequest(BaseModel):

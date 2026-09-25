@@ -8,7 +8,7 @@ export default function BetBox(props: { eventId: number; outcomes: OutcomeLite[]
   const { eventId, outcomes } = props
 
   const [selectedId, setSelectedId] = React.useState<number | null>(outcomes?.[0]?.id ?? null)
-  const [points, setPoints] = React.useState<string>("100")
+  const [points, setPoints] = React.useState<string>("5000")
   const [loading, setLoading] = React.useState(false)
   const [msg, setMsg] = React.useState<string | null>(null)
 
@@ -60,7 +60,7 @@ export default function BetBox(props: { eventId: number; outcomes: OutcomeLite[]
 
   return (
     <div className="rounded-2xl border border-border/70 bg-background/30 p-4">
-      <div className="text-sm font-semibold">Parier</div>
+      <div className="text-sm font-semibold">Bet</div>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {outcomes.map((o) => {
@@ -108,7 +108,7 @@ export default function BetBox(props: { eventId: number; outcomes: OutcomeLite[]
           disabled={loading}
         />
 
-        {[50, 100, 250, 500].map((v) => (
+        {[1000, 10000].map((v) => (
           <button
             key={v}
             type="button"
@@ -126,7 +126,7 @@ export default function BetBox(props: { eventId: number; outcomes: OutcomeLite[]
           onClick={placeBet}
           disabled={loading}
         >
-          {loading ? "..." : "Parier"}
+          {loading ? "..." : "Bet"}
         </button>
       </div>
 

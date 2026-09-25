@@ -58,6 +58,26 @@ def create_puzzle(week_of: date_type, grid: list, categories: list) -> WeeklyCon
         conn.commit()
     return WeeklyConnections(**row)
 
+def list_all_puzzles() -> list[dict]:
+    """Vue admin — contient categories, contrairement à get_puzzle_for_week."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM weekly_connections ORDER BY week_of DESC")
+            return cur.fetchall()
+
+
+def delete_puzzle(puzzle_id: int) -> None:
+    """Même logique que delete_challenge : pas de cascade, échec clair si
+    des tentatives existent déjà."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM weekly_connections WHERE id = %s", (puzzle_id,))
+            except Exception as e:
+                conn.rollback()
+                raise ValueError("Can't delete — this puzzle already has player attempts on it") from e
+        conn.commit()
+
 
 def get_existing_attempt(user_id: int, puzzle_id: int) -> dict | None:
     with pool.connection() as conn:

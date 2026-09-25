@@ -454,8 +454,8 @@ export default function ProfilePage() {
             {transactions.length === 0 ? (
               <p className="text-xs text-muted-foreground">No transaction yet</p>
             ) : (
-              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                {transactions.slice().reverse().slice(0, 20).map((tx) => (
+              <div className="space-y-2">
+                {transactions.slice().reverse().slice(0, 4).map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-background/30 p-3">
                     <div>
                       <p className={`text-xs font-medium ${KIND_COLOR[tx.kind] ?? "text-foreground"}`}>

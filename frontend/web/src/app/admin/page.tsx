@@ -17,7 +17,7 @@ type Event = {
   series_id: number | null
   outcomes: { id: number; outcome: string; pool_points: number; is_winner: boolean }[]
 }
-type Tab = "create-event" | "manage-events" | "create-series" | "create-bingo" | "manage-series" | "manage-mods" | "daily-puzzles"
+type Tab = "create-event" | "manage-events" | "create-series" | "create-bingo" | "manage-series" | "manage-mods" | "daily-puzzles" | "handle-daily-weekly" | "manage-bingo"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_STYLE: Record<string, string> = {
@@ -688,11 +688,16 @@ function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string
   const [silSeries, setSilSeries] = React.useState("")
   const [silSaving, setSilSaving] = React.useState(false)
 
-  // ── Weekly Connections state ──
+  // ── Weekly Connections state ── flux en 2 étapes : d'abord un roster de
+  // 16 personnages (image + nom), puis 4 catégories où on assigne 4
+  // personnages chacune, piochés dans ce roster (un personnage ne peut
+  // être assigné qu'à une seule catégorie).
   const [weekOf, setWeekOf] = React.useState("")
-  const [categories, setCategories] = React.useState(
-    Array.from({ length: 4 }, () => ({ label: "", names: "" }))
+  const [roster, setRoster] = React.useState(
+    Array.from({ length: 16 }, () => ({ name: "", imageUrl: "" }))
   )
+  const [categoryLabels, setCategoryLabels] = React.useState(["", "", "", ""])
+  const [categoryAssignments, setCategoryAssignments] = React.useState<number[][]>([[], [], [], []])
   const [weeklySaving, setWeeklySaving] = React.useState(false)
 
   function updateQuestion(i: number, field: string, val: any) {
@@ -700,6 +705,24 @@ function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string
   }
   function updateOption(qi: number, oi: number, val: string) {
     setQuestions(questions.map((q, idx) => idx === qi ? { ...q, options: q.options.map((o, oidx) => oidx === oi ? val : o) } : q))
+  }
+
+  function updateRosterName(i: number, name: string) {
+    setRoster(roster.map((r, idx) => idx === i ? { ...r, name } : r))
+  }
+  function updateRosterImage(i: number, imageUrl: string) {
+    setRoster(roster.map((r, idx) => idx === i ? { ...r, imageUrl } : r))
+  }
+  function toggleAssignment(ci: number, rosterIndex: number) {
+    setCategoryAssignments((prev) => {
+      const current = prev[ci]
+      if (current.includes(rosterIndex)) {
+        return prev.map((arr, idx) => idx === ci ? arr.filter((x) => x !== rosterIndex) : arr)
+      }
+      const usedElsewhere = prev.some((arr, idx) => idx !== ci && arr.includes(rosterIndex))
+      if (usedElsewhere || current.length >= 4) return prev
+      return prev.map((arr, idx) => idx === ci ? [...arr, rosterIndex] : arr)
+    })
   }
 
   async function submitTrivia() {
@@ -728,7 +751,7 @@ function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string
   }
 
   async function submitSilhouette() {
-    if (!silImageUrl.trim() || !silCharacterName.trim()) return notify("Image URL and character name are required", "error")
+    if (!silImageUrl.trim() || !silCharacterName.trim()) return notify("Upload an image and enter the character name", "error")
 
     setSilSaving(true)
     try {
@@ -754,27 +777,21 @@ function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string
 
   async function submitWeekly() {
     if (!weekOf) return notify("Pick a week (Sunday)", "error")
+    if (roster.some((r) => !r.name.trim() || !r.imageUrl.trim())) {
+      return notify("Every one of the 16 characters needs a name and an uploaded image", "error")
+    }
+    if (categoryLabels.some((l) => !l.trim())) {
+      return notify("Every category needs a label", "error")
+    }
+    if (categoryAssignments.some((arr) => arr.length !== 4)) {
+      return notify("Every category needs exactly 4 characters assigned", "error")
+    }
 
-    const parsedCats = categories.map((c) => ({
-      label: c.label.trim(),
-      names: c.names.split(",").map((n) => n.trim()).filter(Boolean),
+    const grid = roster.map((r, i) => ({ id: i, name: r.name.trim(), image_url: r.imageUrl.trim() }))
+    const finalCategories = categoryLabels.map((label, ci) => ({
+      label: label.trim(),
+      character_ids: categoryAssignments[ci],
     }))
-    if (parsedCats.some((c) => !c.label || c.names.length !== 4)) {
-      return notify("Each category needs a label and exactly 4 names", "error")
-    }
-
-    const grid: { id: number; name: string }[] = []
-    const finalCategories: { label: string; character_ids: number[] }[] = []
-    let id = 0
-    for (const c of parsedCats) {
-      const ids: number[] = []
-      for (const name of c.names) {
-        grid.push({ id, name })
-        ids.push(id)
-        id++
-      }
-      finalCategories.push({ label: c.label, character_ids: ids })
-    }
 
     setWeeklySaving(true)
     try {
@@ -785,7 +802,10 @@ function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string
       })
       if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to create puzzle")
       notify("AniConnections puzzle created")
-      setWeekOf(""); setCategories(Array.from({ length: 4 }, () => ({ label: "", names: "" })))
+      setWeekOf("")
+      setRoster(Array.from({ length: 16 }, () => ({ name: "", imageUrl: "" })))
+      setCategoryLabels(["", "", "", ""])
+      setCategoryAssignments([[], [], [], []])
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : "Failed to create puzzle", "error")
     } finally {
@@ -840,7 +860,19 @@ function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string
       {subTab === "silhouette" && (
         <div className="space-y-4">
           <Input label="Date" type="date" value={silDate} onChange={(e) => setSilDate(e.target.value)} />
-          <Input label="Image URL" value={silImageUrl} onChange={(e) => setSilImageUrl(e.target.value)} placeholder="https://…" />
+          <div>
+            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">Character image</label>
+            <EditableImage
+              kind="daily"
+              shape="cover"
+              currentUrl={silImageUrl}
+              editable={!silSaving}
+              token={token}
+              API={API}
+              onUploaded={setSilImageUrl}
+              className="h-48 w-full border-2 border-dashed border-border/50 bg-background/30"
+            />
+          </div>
           <Input label="Character name (the answer)" value={silCharacterName} onChange={(e) => setSilCharacterName(e.target.value)} />
           <Input label="Series" value={silSeries} onChange={(e) => setSilSeries(e.target.value)} />
           <button onClick={submitSilhouette} disabled={silSaving}
@@ -851,20 +883,324 @@ function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string
       )}
 
       {subTab === "weekly" && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <Input label="Week of (Sunday)" type="date" value={weekOf} onChange={(e) => setWeekOf(e.target.value)} />
-          {categories.map((c, i) => (
-            <div key={i} className="rounded-xl border border-border/60 bg-background/30 p-3 space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Category {i + 1}</p>
-              <Input label="Label" value={c.label} onChange={(e) => setCategories(categories.map((cat, idx) => idx === i ? { ...cat, label: e.target.value } : cat))} placeholder="e.g. Captains" />
-              <Input label="4 names, comma-separated" value={c.names} onChange={(e) => setCategories(categories.map((cat, idx) => idx === i ? { ...cat, names: e.target.value } : cat))} placeholder="Luffy, Law, Kid, Shanks" />
+
+          {/* ── Étape 1 : le roster des 16 personnages ── */}
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">1. Characters (16 total)</h3>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {roster.map((r, i) => (
+                <div key={i}>
+                  <EditableImage
+                    kind="weekly"
+                    shape="cover"
+                    currentUrl={r.imageUrl}
+                    editable={!weeklySaving}
+                    token={token}
+                    API={API}
+                    onUploaded={(url) => updateRosterImage(i, url)}
+                    className="h-24 w-full border-2 border-dashed border-border/50 bg-background/30"
+                  />
+                  <input
+                    className="mt-1.5 h-8 w-full rounded-lg border border-border/60 bg-background/30 px-2 text-[11px] outline-none focus:border-primary/40"
+                    value={r.name}
+                    onChange={(e) => updateRosterName(i, e.target.value)}
+                    placeholder="Name"
+                  />
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+
+          {/* ── Étape 2 : 4 catégories, on pioche dans le roster ── */}
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">2. Categories</h3>
+            <div className="space-y-3">
+              {categoryLabels.map((label, ci) => (
+                <div key={ci} className="rounded-xl border border-border/60 bg-background/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <input
+                      className="h-9 flex-1 rounded-lg border border-border/60 bg-background/30 px-2.5 text-xs outline-none focus:border-primary/40"
+                      value={label}
+                      onChange={(e) => setCategoryLabels(categoryLabels.map((l, idx) => idx === ci ? e.target.value : l))}
+                      placeholder={`Category ${ci + 1} label, e.g. Captains`}
+                    />
+                    <span className="ml-2 shrink-0 text-[11px] text-muted-foreground">{categoryAssignments[ci].length}/4</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {roster.map((r, ri) => {
+                      const inThis = categoryAssignments[ci].includes(ri)
+                      const inOther = categoryAssignments.some((arr, idx) => idx !== ci && arr.includes(ri))
+                      return (
+                        <button
+                          key={ri}
+                          type="button"
+                          disabled={inOther || (!inThis && categoryAssignments[ci].length >= 4)}
+                          onClick={() => toggleAssignment(ci, ri)}
+                          className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                            inThis ? "border-primary bg-primary/15 text-primary"
+                            : inOther ? "border-border/30 text-muted-foreground/40 cursor-not-allowed"
+                            : "border-border/60 text-muted-foreground hover:border-primary/40"
+                          }`}
+                        >
+                          {r.name.trim() || `#${ri + 1}`}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <button onClick={submitWeekly} disabled={weeklySaving}
             className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
             {weeklySaving ? "Creating…" : "Create AniConnections puzzle"}
           </button>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── Handle Daily & Weekly ────────────────────────────────────────────────────
+function HandleDailyWeekly({ token, API, notify }: { token: string; API: string; notify: (msg: string, type?: "success" | "error") => void }) {
+  const [challenges, setChallenges] = React.useState<any[]>([])
+  const [puzzles, setPuzzles] = React.useState<any[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [deleting, setDeleting] = React.useState<string | null>(null)
+
+  async function loadAll() {
+    const [ch, pz] = await Promise.all([
+      fetch(`${API}/admin/daily-challenges`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+      fetch(`${API}/admin/weekly-connections`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+    ])
+    setChallenges(Array.isArray(ch) ? ch : [])
+    setPuzzles(Array.isArray(pz) ? pz : [])
+  }
+
+  React.useEffect(() => { loadAll().finally(() => setLoading(false)) }, [])
+
+  async function deleteChallenge(id: number) {
+    if (!confirm("Delete this challenge? This can't be undone.")) return
+    setDeleting(`c${id}`)
+    try {
+      const res = await fetch(`${API}/admin/daily-challenges/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to delete")
+      notify("Challenge deleted")
+      await loadAll()
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to delete", "error")
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  async function deletePuzzle(id: number) {
+    if (!confirm("Delete this AniConnections puzzle? This can't be undone.")) return
+    setDeleting(`p${id}`)
+    try {
+      const res = await fetch(`${API}/admin/weekly-connections/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to delete")
+      notify("Puzzle deleted")
+      await loadAll()
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to delete", "error")
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="mb-2 text-sm font-semibold">Daily challenges (Trivia / Silhouette)</h3>
+        {challenges.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nothing scheduled yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {challenges.map((c) => (
+              <div key={c.id} className="flex items-center justify-between rounded-xl border border-border/60 bg-background/30 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{c.challenge_date} — {c.type}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {c.type === "trivia"
+                      ? `${c.content?.questions?.length ?? 0} questions`
+                      : `Answer: ${c.answer?.character_name ?? "?"}`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => deleteChallenge(c.id)}
+                  disabled={deleting === `c${c.id}`}
+                  className="shrink-0 rounded-lg border border-red-500/30 px-2.5 py-1 text-[11px] text-red-400 hover:bg-red-500/10 transition disabled:opacity-50"
+                >
+                  {deleting === `c${c.id}` ? "…" : "Delete"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-sm font-semibold">AniConnections puzzles</h3>
+        {puzzles.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nothing scheduled yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {puzzles.map((p) => (
+              <div key={p.id} className="flex items-center justify-between rounded-xl border border-border/60 bg-background/30 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Week of {p.week_of}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {(p.categories ?? []).map((c: any) => c.label).join(" · ")}
+                  </p>
+                </div>
+                <button
+                  onClick={() => deletePuzzle(p.id)}
+                  disabled={deleting === `p${p.id}`}
+                  className="shrink-0 rounded-lg border border-red-500/30 px-2.5 py-1 text-[11px] text-red-400 hover:bg-red-500/10 transition disabled:opacity-50"
+                >
+                  {deleting === `p${p.id}` ? "…" : "Delete"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground/70">
+        No edit form yet — to fix a mistake, delete and recreate via the "Daily & Weekly" tab. Deletion is blocked once a player has already attempted it.
+      </p>
+    </div>
+  )
+}
+
+// ── Handle Bingo ──────────────────────────────────────────────────────────────
+type BingoCardRow = {
+  id: number
+  title: string
+  status: string
+  series_id: number | null
+  opens_at: string
+  closes_at: string
+}
+type BingoItemRow = { id: number; description: string }
+
+function HandleBingo({ token, API, notify }: { token: string; API: string; notify: (msg: string, type?: "success" | "error") => void }) {
+  const [cards, setCards] = React.useState<BingoCardRow[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [resolvingCardId, setResolvingCardId] = React.useState<number | null>(null)
+  const [items, setItems] = React.useState<BingoItemRow[]>([])
+  const [happenedIds, setHappenedIds] = React.useState<number[]>([])
+  const [submitting, setSubmitting] = React.useState(false)
+
+  async function loadCards() {
+    const res = await fetch(`${API}/bingo/`, { headers: { Authorization: `Bearer ${token}` } })
+    const data = await res.json()
+    setCards(Array.isArray(data) ? data : [])
+  }
+
+  React.useEffect(() => { loadCards().finally(() => setLoading(false)) }, [])
+
+  async function openResolve(cardId: number) {
+    setResolvingCardId(cardId)
+    setHappenedIds([])
+    const res = await fetch(`${API}/bingo/${cardId}/items`, { headers: { Authorization: `Bearer ${token}` } })
+    const data = await res.json()
+    setItems(Array.isArray(data) ? data : [])
+  }
+
+  function toggleItem(id: number) {
+    setHappenedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  }
+
+  async function confirmResolve() {
+    if (resolvingCardId == null) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`${API}/bingo/${resolvingCardId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ happened_item_ids: happenedIds }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to resolve")
+      notify("Bingo resolved, rewards distributed")
+      setResolvingCardId(null)
+      await loadCards()
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to resolve", "error")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>
+
+  return (
+    <div className="space-y-3">
+      {cards.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No open bingo cards.</p>
+      ) : (
+        cards.map((card) => (
+          <div key={card.id} className="rounded-xl border border-border/60 bg-background/30 p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">{card.title}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Closes {new Date(card.closes_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                </p>
+              </div>
+              {resolvingCardId !== card.id && (
+                <button
+                  onClick={() => openResolve(card.id)}
+                  className="rounded-lg border border-emerald-500/30 px-2.5 py-1 text-[11px] text-emerald-400 hover:bg-emerald-500/10 transition"
+                >
+                  Resolve
+                </button>
+              )}
+            </div>
+
+            {resolvingCardId === card.id && (
+              <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-3">
+                <p className="mb-2 text-[11px] text-muted-foreground">Select the items that happened:</p>
+                <div className="space-y-1.5">
+                  {items.map((item) => (
+                    <label key={item.id} className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={happenedIds.includes(item.id)}
+                        onChange={() => toggleItem(item.id)}
+                      />
+                      {item.description}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground/70">
+                  Rewards are paid out immediately — double-check before confirming.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={confirmResolve}
+                    disabled={submitting}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    {submitting ? "…" : "Confirm resolution"}
+                  </button>
+                  <button
+                    onClick={() => setResolvingCardId(null)}
+                    className="rounded-lg border border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground hover:text-foreground transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))
       )}
     </div>
   )
@@ -920,8 +1256,10 @@ export default function AdminPage() {
     { id: "create-series", label: "📚 New series" },
     { id: "manage-series", label: "🖼 Handle series" },
     { id: "create-bingo",  label: "🎯 Create a bingo" },
+    { id: "manage-bingo", label: "🎱 Handle Bingo"},
     { id: "manage-mods",   label: "🛡️ Manage mods" },
     { id: "daily-puzzles", label: "🎮 Daily & Weekly" },
+    { id: "handle-daily-weekly", label: "📋 Handle Daily & Weekly" },
   ]
 
   return (
@@ -992,12 +1330,30 @@ export default function AdminPage() {
               <CreateDailyPuzzles token={token} API={API} notify={notify} />
             </>
           )}
+          {tab === "handle-daily-weekly" && (
+            <>
+              <div className="mb-4">
+                <h2 className="text-base font-semibold">Handle Daily & Weekly</h2>
+              </div>
+              <HandleDailyWeekly token={token} API={API} notify={notify} />
+            </>
+          )}
           {tab === "create-bingo" && (
             <>
               <h2 className="mb-4 text-base font-semibold">Create a bingo</h2>
               <CreateBingoForm series={series} token={token} API={API} onSuccess={() => { notify("Bingo créé ✓") }} />
             </>
           )}
+          {tab == "manage-bingo" && (
+            <>
+              <div className="mb-4">
+                <h2 className="text-base font-semibold">Handle Bingo</h2>
+              </div>
+              <HandleBingo token={token} API={API} notify={notify}/>
+            </>
+          )
+
+          }
         </div>
       </main>
       {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}

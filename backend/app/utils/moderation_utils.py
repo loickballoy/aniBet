@@ -158,6 +158,87 @@ def reject_proposal(proposal_id: int, reviewed_by: int) -> None:
         conn.commit()
 
 
+def _slugify(name: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def propose_series(proposed_by: int, name: str, description: str | None, source_url: str | None) -> dict:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO series_proposals (proposed_by, name, description, source_url)
+                VALUES (%s, %s, %s, %s)
+                RETURNING *
+                """,
+                (proposed_by, name, description, source_url),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    notify_owners("series_proposal_pending", {"proposal_id": row["id"], "name": name})
+    return row
+
+
+def get_pending_series_proposals() -> list[dict]:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT sp.*, u.username AS proposed_by_username
+                FROM series_proposals sp
+                JOIN "User" u ON u.id = sp.proposed_by
+                WHERE sp.status = 'pending'
+                ORDER BY sp.created_at
+                """
+            )
+            return cur.fetchall()
+
+
+def approve_series_proposal(proposal_id: int, reviewed_by: int):
+    from app.utils import series_utils
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM series_proposals WHERE id = %s", (proposal_id,))
+            proposal = cur.fetchone()
+    if proposal is None:
+        raise ValueError("Proposal not found")
+    if proposal["status"] != "pending":
+        raise ValueError("Proposal already reviewed")
+
+    try:
+        series = series_utils.create_series(proposal["name"], _slugify(proposal["name"]), None)
+    except Exception as e:
+        raise ValueError("A series with this name already exists") from e
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE series_proposals
+                SET status = 'approved', reviewed_by = %s, reviewed_at = now(), created_series_id = %s
+                WHERE id = %s
+                """,
+                (reviewed_by, series.id, proposal_id),
+            )
+        conn.commit()
+    return series
+
+
+def reject_series_proposal(proposal_id: int, reviewed_by: int) -> None:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE series_proposals
+                SET status = 'rejected', reviewed_by = %s, reviewed_at = now()
+                WHERE id = %s AND status = 'pending'
+                """,
+                (reviewed_by, proposal_id),
+            )
+        conn.commit()
+
 # ---------------------------------------------------------------------------
 # Notifications — Json(payload) est obligatoire : psycopg3 refuse
 # d'adapter un dict Python brut vers une colonne jsonb sans ce wrapper.

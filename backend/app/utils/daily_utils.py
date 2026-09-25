@@ -13,7 +13,7 @@ from app.models.daily import DailyChallenge, Streak
 
 TRIVIA_REWARD = 200
 SILHOUETTE_REWARD = 150
-MAX_SILHOUETTE_GUESSES = 6
+MAX_SILHOUETTE_GUESSES = 3
 
 # Solved = au moins 3/5 bonnes réponses. Un score parfait (5/5) rapporterait
 # plus de points via difficulty_weight, mais exiger 5/5 pour garder son
@@ -144,3 +144,24 @@ def get_streak(user_id: int) -> Streak:
             cur.execute("SELECT * FROM streaks WHERE user_id = %s", (user_id,))
             row = cur.fetchone()
     return Streak(**row) if row else Streak()
+
+def list_all_challenges() -> list[dict]:
+    """Vue admin — contient answer, contrairement à get_challenge_for_date."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM daily_challenges ORDER BY challenge_date DESC")
+            return cur.fetchall()
+
+
+def delete_challenge(challenge_id: int) -> None:
+    """Échoue avec une erreur FK claire si des tentatives existent déjà
+    dessus — volontaire, pas de cascade pour ne jamais effacer la partie
+    d'un joueur silencieusement."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("DELETE FROM daily_challenges WHERE id = %s", (challenge_id,))
+            except Exception as e:
+                conn.rollback()
+                raise ValueError("Can't delete — this challenge already has player attempts on it") from e
+        conn.commit()

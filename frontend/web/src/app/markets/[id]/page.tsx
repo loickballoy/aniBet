@@ -210,7 +210,7 @@ export default async function MarketDetailPage(props: { params: any }) {
                 <div className="mt-1.5 text-lg font-bold tabular-nums text-primary">{formatPts(poolTotal)}</div>
               </div>
               <div className="rounded-2xl border border-border/50 bg-card/40 p-4 backdrop-blur-sm">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">Ouverture</div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">Open</div>
                 <div className="mt-1.5 text-xs font-medium">{formatDate(event.opens_at)}</div>
               </div>
               <div className="rounded-2xl border border-border/50 bg-card/40 p-4 backdrop-blur-sm">
@@ -291,7 +291,7 @@ export default async function MarketDetailPage(props: { params: any }) {
                 {/* Header */}
                 <div className="border-b border-border/40 bg-primary/5 px-5 py-3.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">Placer un pari</span>
+                    <span className="text-sm font-semibold">Place a bet</span>
                     <span className="text-[11px] text-muted-foreground">
                       {outcomes.length} outcome{outcomes.length > 1 ? "s" : ""}
                     </span>
@@ -310,7 +310,7 @@ export default async function MarketDetailPage(props: { params: any }) {
 
               {/* Disclaimer */}
               <p className="mt-3 text-center text-[11px] text-muted-foreground/50">
-                Les AniCoins sont virtuels · Aucune valeur réelle
+                Anicoins Have no real value
               </p>
             </div>
           </div>

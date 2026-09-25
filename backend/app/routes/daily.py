@@ -23,9 +23,16 @@ async def get_todays_challenge(current_user: user_dependency):
     user_id = auth_utils.get_user_id(current_user.username)
     attempt = daily_utils.get_existing_attempt(user_id, challenge.id)
 
+    # La réponse n'est révélée que si le joueur a déjà terminé sa tentative
+    # (solved ou failed) — jamais tant que result est encore null.
+    revealed_answer = None
+    if attempt and attempt.get("result") is not None:
+        revealed_answer = daily_utils._get_answer_for_challenge(challenge.id)
+
     return {
         "challenge": challenge,
         "attempt": attempt,  # None si jamais tenté, sinon l'état actuel (utile pour la silhouette en cours)
+        "revealed_answer": revealed_answer,
     }
 
 
@@ -74,3 +81,20 @@ async def create_daily_challenge(request: CreateDailyChallengeRequest, current_u
 @DailyRouter.get("/streaks/me", response_model=Streak)
 async def get_my_streak(current_user: user_dependency):
     return daily_utils.get_streak(auth_utils.get_user_id(current_user.username))
+
+@DailyRouter.get("/admin/daily-challenges")
+async def list_daily_challenges(current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return daily_utils.list_all_challenges()
+
+
+@DailyRouter.delete("/admin/daily-challenges/{challenge_id}", status_code=status.HTTP_200_OK)
+async def delete_daily_challenge(challenge_id: int, current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    try:
+        daily_utils.delete_challenge(challenge_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"message": "Deleted"}

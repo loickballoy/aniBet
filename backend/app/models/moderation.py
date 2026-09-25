@@ -68,3 +68,8 @@ class Notification(BaseModel):
     payload: dict = {}
     read_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+
+class ProposeSeriesRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    source_url: Optional[str] = None
