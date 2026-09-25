@@ -24,7 +24,7 @@ class EventProposal(BaseModel):
     description: Optional[str] = None
     series_id: int
     outcomes: list[str]
-    source_url: str
+    source_url: Optional[str] = None
     status: str = "pending"  # "pending" | "approved" | "rejected"
     reviewed_by: Optional[int] = None
     reviewed_at: Optional[datetime] = None
@@ -36,7 +36,7 @@ class ProposeEventRequest(BaseModel):
     description: Optional[str] = None
     series_id: int
     outcomes: list[str]
-    source_url: str
+    source_url: Optional[str] = None
 
 
 class ApproveProposalRequest(BaseModel):

@@ -74,6 +74,15 @@ def get_user_by_username(username: str) -> UserInDB | None:
             row = cur.fetchone()
     return UserInDB(**row) if row else None
 
+def search_users_by_username(query: str, limit: int = 10) -> list[dict]:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT id, username, role FROM "User" WHERE username ILIKE %s ORDER BY username LIMIT %s',
+                (f"%{query}%", limit),
+            )
+            return cur.fetchall()
+
 def get_user_by_google_sub(sub: str) -> UserInDB | None:
     with pool.connection() as conn:
         with conn.cursor() as cur:

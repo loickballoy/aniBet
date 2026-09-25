@@ -17,7 +17,7 @@ type Event = {
   series_id: number | null
   outcomes: { id: number; outcome: string; pool_points: number; is_winner: boolean }[]
 }
-type Tab = "create-event" | "manage-events" | "create-series" | "create-bingo" | "manage-series"
+type Tab = "create-event" | "manage-events" | "create-series" | "create-bingo" | "manage-series" | "manage-mods" | "daily-puzzles"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_STYLE: Record<string, string> = {
@@ -566,6 +566,310 @@ function ManageEvents({ events, token, API, onRefresh }: { events: Event[]; toke
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+// ── Manage Mods ──────────────────────────────────────────────────────────────
+function ManageMods({ series, token, API, notify }: { series: Series[]; token: string; API: string; notify: (msg: string, type?: "success" | "error") => void }) {
+  const [query, setQuery] = React.useState("")
+  const [results, setResults] = React.useState<{ id: number; username: string; role: string }[]>([])
+  const [searching, setSearching] = React.useState(false)
+  const [selectedUser, setSelectedUser] = React.useState<{ id: number; username: string } | null>(null)
+  const [seriesId, setSeriesId] = React.useState("")
+  const [granting, setGranting] = React.useState(false)
+
+  React.useEffect(() => {
+    if (query.trim().length < 2) { setResults([]); return }
+    setSearching(true)
+    const t = setTimeout(() => {
+      fetch(`${API}/admin/users/search?q=${encodeURIComponent(query.trim())}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((data) => setResults(Array.isArray(data) ? data : []))
+        .finally(() => setSearching(false))
+    }, 300) // debounce
+    return () => clearTimeout(t)
+  }, [query])
+
+  async function grant() {
+    if (!selectedUser || !seriesId) return
+    setGranting(true)
+    try {
+      const res = await fetch(`${API}/admin/mod-scopes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ user_id: selectedUser.id, series_id: Number(seriesId) }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to grant scope")
+      notify(`${selectedUser.username} is now a mod for this series`)
+      setSelectedUser(null); setQuery(""); setSeriesId("")
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to grant scope", "error")
+    } finally {
+      setGranting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">Search a user by username</label>
+        <input
+          className="h-10 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none transition focus:border-primary/50"
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setSelectedUser(null) }}
+          placeholder="Type at least 2 characters…"
+        />
+        {searching && <p className="mt-1 text-[11px] text-muted-foreground">Searching…</p>}
+        {results.length > 0 && !selectedUser && (
+          <div className="mt-2 space-y-1">
+            {results.map((u) => (
+              <button
+                key={u.id}
+                onClick={() => { setSelectedUser({ id: u.id, username: u.username }); setQuery(u.username); setResults([]) }}
+                className="flex w-full items-center justify-between rounded-xl border border-border/50 bg-background/30 px-3 py-2 text-sm hover:border-primary/40 transition"
+              >
+                <span>{u.username}</span>
+                <span className="text-[11px] text-muted-foreground">{u.role}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {selectedUser && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+          <p className="text-sm">
+            Selected: <span className="font-semibold text-primary">{selectedUser.username}</span>
+          </p>
+        </div>
+      )}
+
+      <div>
+        <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">Series to moderate</label>
+        <select
+          className="h-10 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none transition focus:border-primary/50"
+          value={seriesId}
+          onChange={(e) => setSeriesId(e.target.value)}
+        >
+          <option value="">— Choose a series —</option>
+          {series.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      <button
+        onClick={grant}
+        disabled={!selectedUser || !seriesId || granting}
+        className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+      >
+        {granting ? "Granting…" : "Grant mod scope"}
+      </button>
+
+      <p className="text-[11px] text-muted-foreground/70">
+        A mod can only approve/reject proposals and resolve events for the series they're scoped to — they can't touch other series, and they can't bet on events within their own scope.
+      </p>
+    </div>
+  )
+}
+
+// ── Create Daily/Weekly Puzzles ─────────────────────────────────────────────
+function CreateDailyPuzzles({ token, API, notify }: { token: string; API: string; notify: (msg: string, type?: "success" | "error") => void }) {
+  const [subTab, setSubTab] = React.useState<"trivia" | "silhouette" | "weekly">("trivia")
+
+  // ── Trivia state ──
+  const [triviaDate, setTriviaDate] = React.useState(new Date().toISOString().slice(0, 10))
+  const [questions, setQuestions] = React.useState(
+    Array.from({ length: 5 }, () => ({ question: "", options: ["", ""], correctIndex: 0, difficulty: 1, series: "" }))
+  )
+  const [triviaSaving, setTriviaSaving] = React.useState(false)
+
+  // ── Silhouette state ──
+  const [silDate, setSilDate] = React.useState(new Date().toISOString().slice(0, 10))
+  const [silImageUrl, setSilImageUrl] = React.useState("")
+  const [silCharacterName, setSilCharacterName] = React.useState("")
+  const [silSeries, setSilSeries] = React.useState("")
+  const [silSaving, setSilSaving] = React.useState(false)
+
+  // ── Weekly Connections state ──
+  const [weekOf, setWeekOf] = React.useState("")
+  const [categories, setCategories] = React.useState(
+    Array.from({ length: 4 }, () => ({ label: "", names: "" }))
+  )
+  const [weeklySaving, setWeeklySaving] = React.useState(false)
+
+  function updateQuestion(i: number, field: string, val: any) {
+    setQuestions(questions.map((q, idx) => idx === i ? { ...q, [field]: val } : q))
+  }
+  function updateOption(qi: number, oi: number, val: string) {
+    setQuestions(questions.map((q, idx) => idx === qi ? { ...q, options: q.options.map((o, oidx) => oidx === oi ? val : o) } : q))
+  }
+
+  async function submitTrivia() {
+    const valid = questions.every((q) => q.question.trim() && q.options.every((o) => o.trim()))
+    if (!valid) return notify("Fill every question and every option", "error")
+
+    setTriviaSaving(true)
+    try {
+      const res = await fetch(`${API}/admin/daily-challenges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          challenge_date: triviaDate,
+          type: "trivia",
+          content: { questions: questions.map((q) => ({ question: q.question, options: q.options, difficulty_weight: q.difficulty, series: q.series })) },
+          answer: { correct_indices: questions.map((q) => q.correctIndex) },
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to create trivia")
+      notify("Trivia created")
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to create trivia", "error")
+    } finally {
+      setTriviaSaving(false)
+    }
+  }
+
+  async function submitSilhouette() {
+    if (!silImageUrl.trim() || !silCharacterName.trim()) return notify("Image URL and character name are required", "error")
+
+    setSilSaving(true)
+    try {
+      const res = await fetch(`${API}/admin/daily-challenges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          challenge_date: silDate,
+          type: "silhouette",
+          content: { image_url: silImageUrl.trim(), hints: [] },
+          answer: { character_name: silCharacterName.trim(), series: silSeries.trim() },
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to create silhouette")
+      notify("Silhouette created")
+      setSilImageUrl(""); setSilCharacterName(""); setSilSeries("")
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to create silhouette", "error")
+    } finally {
+      setSilSaving(false)
+    }
+  }
+
+  async function submitWeekly() {
+    if (!weekOf) return notify("Pick a week (Sunday)", "error")
+
+    const parsedCats = categories.map((c) => ({
+      label: c.label.trim(),
+      names: c.names.split(",").map((n) => n.trim()).filter(Boolean),
+    }))
+    if (parsedCats.some((c) => !c.label || c.names.length !== 4)) {
+      return notify("Each category needs a label and exactly 4 names", "error")
+    }
+
+    const grid: { id: number; name: string }[] = []
+    const finalCategories: { label: string; character_ids: number[] }[] = []
+    let id = 0
+    for (const c of parsedCats) {
+      const ids: number[] = []
+      for (const name of c.names) {
+        grid.push({ id, name })
+        ids.push(id)
+        id++
+      }
+      finalCategories.push({ label: c.label, character_ids: ids })
+    }
+
+    setWeeklySaving(true)
+    try {
+      const res = await fetch(`${API}/admin/weekly-connections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ week_of: weekOf, grid, categories: finalCategories }),
+      })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to create puzzle")
+      notify("AniConnections puzzle created")
+      setWeekOf(""); setCategories(Array.from({ length: 4 }, () => ({ label: "", names: "" })))
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to create puzzle", "error")
+    } finally {
+      setWeeklySaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex gap-2">
+        {(["trivia", "silhouette", "weekly"] as const).map((t) => (
+          <button key={t} onClick={() => setSubTab(t)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${subTab === t ? "border-primary bg-primary/15 text-primary" : "border-border/60 text-muted-foreground hover:text-foreground"}`}>
+            {t === "trivia" ? "Trivia" : t === "silhouette" ? "Silhouette" : "AniConnections"}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "trivia" && (
+        <div className="space-y-4">
+          <Input label="Date" type="date" value={triviaDate} onChange={(e) => setTriviaDate(e.target.value)} />
+          {questions.map((q, i) => (
+            <div key={i} className="rounded-xl border border-border/60 bg-background/30 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Question {i + 1}</p>
+              <Input label="Question" value={q.question} onChange={(e) => updateQuestion(i, "question", e.target.value)} />
+              {q.options.map((o, oi) => (
+                <div key={oi} className="flex items-center gap-2">
+                  <input type="radio" checked={q.correctIndex === oi} onChange={() => updateQuestion(i, "correctIndex", oi)} />
+                  <input
+                    className="h-9 flex-1 rounded-lg border border-border/60 bg-background/30 px-2.5 text-xs outline-none focus:border-primary/40"
+                    value={o}
+                    onChange={(e) => updateOption(i, oi, e.target.value)}
+                    placeholder={`Option ${oi + 1}`}
+                  />
+                </div>
+              ))}
+              <button type="button" onClick={() => updateQuestion(i, "options", [...q.options, ""])}
+                className="text-[11px] text-primary hover:underline">+ Add option</button>
+              <div className="flex gap-2">
+                <Input label="Difficulty weight" type="number" value={q.difficulty} onChange={(e) => updateQuestion(i, "difficulty", Number(e.target.value))} />
+                <Input label="Series" value={q.series} onChange={(e) => updateQuestion(i, "series", e.target.value)} />
+              </div>
+            </div>
+          ))}
+          <button onClick={submitTrivia} disabled={triviaSaving}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
+            {triviaSaving ? "Creating…" : "Create trivia"}
+          </button>
+        </div>
+      )}
+
+      {subTab === "silhouette" && (
+        <div className="space-y-4">
+          <Input label="Date" type="date" value={silDate} onChange={(e) => setSilDate(e.target.value)} />
+          <Input label="Image URL" value={silImageUrl} onChange={(e) => setSilImageUrl(e.target.value)} placeholder="https://…" />
+          <Input label="Character name (the answer)" value={silCharacterName} onChange={(e) => setSilCharacterName(e.target.value)} />
+          <Input label="Series" value={silSeries} onChange={(e) => setSilSeries(e.target.value)} />
+          <button onClick={submitSilhouette} disabled={silSaving}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
+            {silSaving ? "Creating…" : "Create silhouette"}
+          </button>
+        </div>
+      )}
+
+      {subTab === "weekly" && (
+        <div className="space-y-4">
+          <Input label="Week of (Sunday)" type="date" value={weekOf} onChange={(e) => setWeekOf(e.target.value)} />
+          {categories.map((c, i) => (
+            <div key={i} className="rounded-xl border border-border/60 bg-background/30 p-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Category {i + 1}</p>
+              <Input label="Label" value={c.label} onChange={(e) => setCategories(categories.map((cat, idx) => idx === i ? { ...cat, label: e.target.value } : cat))} placeholder="e.g. Captains" />
+              <Input label="4 names, comma-separated" value={c.names} onChange={(e) => setCategories(categories.map((cat, idx) => idx === i ? { ...cat, names: e.target.value } : cat))} placeholder="Luffy, Law, Kid, Shanks" />
+            </div>
+          ))}
+          <button onClick={submitWeekly} disabled={weeklySaving}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
+            {weeklySaving ? "Creating…" : "Create AniConnections puzzle"}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const router = useRouter()
   const [user, setUser] = React.useState<User | null>(null)
@@ -616,6 +920,8 @@ export default function AdminPage() {
     { id: "create-series", label: "📚 New series" },
     { id: "manage-series", label: "🖼 Handle series" },
     { id: "create-bingo",  label: "🎯 Create a bingo" },
+    { id: "manage-mods",   label: "🛡️ Manage mods" },
+    { id: "daily-puzzles", label: "🎮 Daily & Weekly" },
   ]
 
   return (
@@ -668,6 +974,22 @@ export default function AdminPage() {
                 <button onClick={loadData} className="text-xs text-muted-foreground hover:text-foreground transition-colors">↺ Reload</button>
               </div>
               <ManageSeries series={series} token={token} API={API} onRefresh={loadData} notify={notify} />
+            </>
+          )}
+          {tab === "manage-mods" && (
+            <>
+              <div className="mb-4">
+                <h2 className="text-base font-semibold">Manage Mods</h2>
+              </div>
+              <ManageMods series={series} token={token} API={API} notify={notify} />
+            </>
+          )}
+          {tab === "daily-puzzles" && (
+            <>
+              <div className="mb-4">
+                <h2 className="text-base font-semibold">Daily & Weekly Puzzles</h2>
+              </div>
+              <CreateDailyPuzzles token={token} API={API} notify={notify} />
             </>
           )}
           {tab === "create-bingo" && (

@@ -69,7 +69,7 @@ def is_mod_for_series(user_id: int, series_id: int) -> bool:
 # ---------------------------------------------------------------------------
 
 def propose_event(proposed_by: int, title: str, description: str | None,
-                   series_id: int, outcomes: list[str], source_url: str) -> EventProposal:
+                   series_id: int, outcomes: list[str], source_url: str | None) -> EventProposal:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(

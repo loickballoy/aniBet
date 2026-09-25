@@ -66,6 +66,14 @@ async def reject_proposal(proposal_id: int, current_user: user_dependency):
 # Gestion des mod scopes — admin uniquement
 # ---------------------------------------------------------------------------
 
+@ModerationRouter.get("/admin/users/search")
+async def search_users(current_user: user_dependency, q: str = ""):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if len(q.strip()) < 2:
+        return []
+    return auth_utils.search_users_by_username(q.strip())
+
 @ModerationRouter.post("/admin/mod-scopes", status_code=status.HTTP_201_CREATED)
 async def grant_mod_scope(request: GrantModScopeRequest, current_user: user_dependency):
     if current_user.role not in ("admin", "owner"):
