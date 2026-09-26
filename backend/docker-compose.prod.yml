@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    # Même image que le dev, mais sans --reload et avec 2 workers.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    env_file: .env.prod
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    env_file: .env.prod
+    restart: unless-stopped
+    depends_on:
+      - api

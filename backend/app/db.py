@@ -11,6 +11,8 @@ pool = ConnectionPool(
     min_size=1,
     max_size=10,
     kwargs={"row_factory": dict_row},
+    check=ConnectionPool.check_connection,
+    max_idle=120,
     open=False,
 )
 pool.open()
