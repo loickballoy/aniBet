@@ -1,0 +1,474 @@
+diff --git a/backend/app/models/event.py b/backend/app/models/event.py
+index f939172..a7fd828 100644
+--- a/backend/app/models/event.py
++++ b/backend/app/models/event.py
+@@ -47,6 +47,12 @@ class CreateEventRequest(BaseModel):
+     tag_ids: list[int] = []
+ 
+ 
++class ReopenEventRequest(BaseModel):
++    # Nouvelle date limite obligatoire : rouvrir sans date laisserait parier
++    # indéfiniment, y compris après le prochain leak.
++    locks_at: datetime
++
++
+ class ResolveEventRequest(BaseModel):
+     winning_outcome_id: int
+     evidence_url: str
+diff --git a/backend/app/routes/events.py b/backend/app/routes/events.py
+index 1208c6e..bd6897f 100644
+--- a/backend/app/routes/events.py
++++ b/backend/app/routes/events.py
+@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
+ 
+ from app.models.event import (
+     Event, EventOutcome, EventWithOutcomes,
+-    CreateEventRequest, ResolveEventRequest,
++    CreateEventRequest, ResolveEventRequest, ReopenEventRequest,
+ )
+ from app.models.moderation import RaiseDisputeRequest
+ 
+@@ -120,6 +120,13 @@ async def dispute_event(event_id: int, request: RaiseDisputeRequest, current_use
+         )
+     except ValueError as e:
+         raise HTTPException(status_code=409, detail=str(e))
++
++    event = bet_utils.get_event_by_id(event_id)
++    moderation_utils.notify_owners("dispute_opened", {
++        "event_id": event_id,
++        "title": event.title if event else "",
++        "counter_evidence_url": request.counter_evidence_url,
++    })
+     return {"dispute_id": dispute_id}
+ 
+ 
+@@ -150,15 +157,42 @@ async def finalize_payout(event_id: int, current_user: user_dependency):
+ 
+     return {"message": "Payout finalized"}
+ 
++def _require_event_manager(current_user, event) -> None:
++    """Admin/owner, ou mod de la série de l'event."""
++    if current_user.role in ("admin", "owner"):
++        return
++    if event.series_id is not None and moderation_utils.is_mod_for_series(
++        auth_utils.get_user_id(current_user.username), event.series_id
++    ):
++        return
++    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only, or a mod for this series")
++
++
+ @EventRouter.patch("/{event_id}/lock", status_code=status.HTTP_200_OK)
+ async def lock_event(event_id: int, current_user: user_dependency):
+-    if current_user.role != "admin":
+-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+-
+-    bet_utils.lock_event(event_id)
++    event = bet_utils.get_event_by_id(event_id)
++    if not event:
++        raise HTTPException(status_code=404, detail="Event not found")
++    _require_event_manager(current_user, event)
++    if not bet_utils.lock_event(event_id):
++        raise HTTPException(status_code=409, detail=f"Only open events can be locked (status: {event.status})")
+     return {"message": "Event locked"}
+ 
+ 
++@EventRouter.patch("/{event_id}/reopen", status_code=status.HTTP_200_OK)
++async def reopen_event(event_id: int, request: ReopenEventRequest, current_user: user_dependency):
++    event = bet_utils.get_event_by_id(event_id)
++    if not event:
++        raise HTTPException(status_code=404, detail="Event not found")
++    _require_event_manager(current_user, event)
++    locks_at = request.locks_at if request.locks_at.tzinfo else request.locks_at.replace(tzinfo=UTC)
++    if locks_at <= datetime.now(UTC):
++        raise HTTPException(status_code=400, detail="The new betting deadline must be in the future")
++    if not bet_utils.reopen_event(event_id, locks_at):
++        raise HTTPException(status_code=409, detail=f"Only locked events can be reopened (status: {event.status})")
++    return {"message": "Event reopened"}
++
++
+ @EventRouter.post("/{event_id}/admin-carousel", status_code=status.HTTP_201_CREATED)
+ async def add_to_admin_carousel(event_id: int, current_user: user_dependency):
+     if current_user.role != "admin":
+diff --git a/backend/app/setting.py b/backend/app/setting.py
+index 3c50a6b..dcb80b0 100644
+--- a/backend/app/setting.py
++++ b/backend/app/setting.py
+@@ -27,6 +27,11 @@ DISCORD_REDIRECT_URI =os.getenv("DISCORD_REDIRECT_URI")
+ 
+ FRONTEND_URL = os.getenv("FRONTEND_URL")
+ 
++# Emails (Resend). Tous optionnels : sans clé, aucun email n'est envoyé.
++RESEND_API_KEY = os.getenv("RESEND_API_KEY")
++NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL")
++EMAIL_FROM = os.getenv("EMAIL_FROM", "aniBet <notifications@anibet.io>")
++
+ R2_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+ R2_ACCESS_KEY_ID = os.getenv("CLOUDFLARE_ACCESS_KEY_ID")
+ R2_SECRET_ACCESS_KEY = os.getenv("CLOUDFLARE_SECRET_ACCESS_KEY")
+@@ -51,6 +56,10 @@ class Settings:
+ 
+     frontend_url: str = FRONTEND_URL
+ 
++    resend_api_key: str | None = RESEND_API_KEY
++    notify_email: str | None = NOTIFY_EMAIL
++    email_from: str = EMAIL_FROM
++
+     r2_account_id: str = R2_ACCOUNT_ID
+     r2_access_key_id: str = R2_ACCESS_KEY_ID
+     r2_secret_access_key: str = R2_SECRET_ACCESS_KEY
+diff --git a/backend/app/utils/bet_utils.py b/backend/app/utils/bet_utils.py
+index cc6cd04..05c99e0 100644
+--- a/backend/app/utils/bet_utils.py
++++ b/backend/app/utils/bet_utils.py
+@@ -180,11 +180,33 @@ def create_event(title: str, description: str | None, series_id: int | None,
+     return Event(**event_row), [EventOutcome(**row) for row in outcome_rows]
+ 
+ 
+-def lock_event(event_id: int) -> None:
++def lock_event(event_id: int) -> bool:
++    """Verrouille un event OUVERT uniquement. Renvoie False sinon : sans cette
++    condition, "verrouiller" un event déjà résolu le ramenait à 'locked' et
++    cassait le cycle résolution -> dispute -> paiement."""
+     with pool.connection() as conn:
+         with conn.cursor() as cur:
+-            cur.execute("UPDATE events SET status = 'locked' WHERE id = %s", (event_id,))
++            cur.execute(
++                "UPDATE events SET status = 'locked' WHERE id = %s AND status = 'open' RETURNING id",
++                (event_id,),
++            )
++            locked = cur.fetchone() is not None
++        conn.commit()
++    return locked
++
++
++def reopen_event(event_id: int, locks_at) -> bool:
++    """Rouvre un event VERROUILLÉ avec une nouvelle date limite (typiquement :
++    le chapitre est sorti sans trancher la question)."""
++    with pool.connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE events SET status = 'open', locks_at = %s WHERE id = %s AND status = 'locked' RETURNING id",
++                (locks_at, event_id),
++            )
++            reopened = cur.fetchone() is not None
+         conn.commit()
++    return reopened
+ 
+ 
+ def place_bet(user_id: int, outcome_id: int, points_placed: int) -> Bet:
+diff --git a/backend/app/utils/email_utils.py b/backend/app/utils/email_utils.py
+new file mode 100644
+index 0000000..ba1e07b
+--- /dev/null
++++ b/backend/app/utils/email_utils.py
+@@ -0,0 +1,68 @@
++"""
++Envoi d'emails de notification à l'équipe du site (via l'API HTTP de Resend).
++
++Deux garanties :
++- Un envoi ne bloque JAMAIS la requête du joueur : il part dans un thread.
++- Un échec d'envoi n'est JAMAIS remonté à l'utilisateur : il est journalisé.
++Sans RESEND_API_KEY / NOTIFY_EMAIL (dev, tests, CI), rien n'est envoyé.
++"""
++
++import logging
++import threading
++
++import httpx
++
++from app.setting import settings
++
++logger = logging.getLogger("anibet.email")
++
++RESEND_URL = "https://api.resend.com/emails"
++
++
++def is_configured() -> bool:
++    return bool(settings.resend_api_key and settings.notify_email)
++
++
++def _send(subject: str, text: str) -> None:
++    try:
++        resp = httpx.post(
++            RESEND_URL,
++            headers={"Authorization": f"Bearer {settings.resend_api_key}"},
++            json={"from": settings.email_from, "to": [settings.notify_email], "subject": subject, "text": text},
++            timeout=10,
++        )
++        if resp.status_code >= 300:
++            logger.warning("Email not sent (%s): %s", resp.status_code, resp.text[:300])
++    except Exception:
++        logger.exception("Email sending failed")
++
++
++def send_team_email(subject: str, text: str) -> None:
++    if not is_configured():
++        return
++    threading.Thread(target=_send, args=(subject, text), daemon=True).start()
++
++
++def build_notification_email(type_: str, payload: dict) -> tuple[str, str] | None:
++    """Sujet + corps lisibles pour chaque type de notification, avec un lien direct."""
++    site = (settings.frontend_url or "").rstrip("/")
++    if type_ == "proposal_pending":
++        return (
++            f"[aniBet] New event proposal: {payload.get('title', '')}",
++            f"A player proposed a new event:\n\n  {payload.get('title', '')}\n\nReview it: {site}/mod/proposals\n",
++        )
++    if type_ == "series_proposal_pending":
++        return (
++            f"[aniBet] New series proposal: {payload.get('name', '')}",
++            f"A player proposed a new series:\n\n  {payload.get('name', '')}\n\nReview it (Admin > Series proposals): {site}/admin\n",
++        )
++    if type_ == "dispute_opened":
++        return (
++            f"[aniBet] Dispute opened: {payload.get('title', '')}",
++            "A player disputed the result of:\n\n"
++            f"  {payload.get('title', '')}\n\n"
++            f"Their source: {payload.get('counter_evidence_url', '')}\n\n"
++            "Payouts are on hold until you decide (Admin > Disputes): "
++            f"{site}/admin\n",
++        )
++    return None
+diff --git a/backend/app/utils/moderation_utils.py b/backend/app/utils/moderation_utils.py
+index 745f80d..e7ce9cb 100644
+--- a/backend/app/utils/moderation_utils.py
++++ b/backend/app/utils/moderation_utils.py
+@@ -9,6 +9,7 @@ from app.db import pool
+ from app.models.moderation import ModScope, EventProposal, ResolutionDispute, Notification
+ from app.models.event import Event, EventOutcome
+ from app.utils import bet_utils
++from app.utils import email_utils
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -263,6 +264,11 @@ def notify_owners(type_: str, payload: dict) -> None:
+             owner_ids = [row["id"] for row in cur.fetchall()]
+     for uid in owner_ids:
+         notify(uid, type_, payload)
++    # En plus des notifications en base, un email part vers l'adresse de
++    # l'équipe (une seule fois, quel que soit le nombre de comptes owner).
++    email = email_utils.build_notification_email(type_, payload)
++    if email:
++        email_utils.send_team_email(*email)
+ 
+ 
+ def notify_mods_for_series(series_id: int, type_: str, payload: dict) -> None:
+diff --git a/backend/tests/test_12_lock_and_notifications.py b/backend/tests/test_12_lock_and_notifications.py
+new file mode 100644
+index 0000000..d0d7020
+--- /dev/null
++++ b/backend/tests/test_12_lock_and_notifications.py
+@@ -0,0 +1,139 @@
++"""
++Verrouillage / réouverture des events (stratégie anti-leak : un mod verrouille
++avant les leaks, rouvre si le chapitre ne tranche pas) et emails d'équipe.
++"""
++from datetime import datetime, timedelta, UTC
++
++import pytest
++
++from app.utils import email_utils
++
++
++def _future(hours=24):
++    return (datetime.now(UTC) + timedelta(hours=hours)).isoformat()
++
++
++@pytest.fixture(scope="module")
++def lock_series(client, admin_headers, second_bettor_id):
++    series = client.post("/series/", json={"name": "Lock Series", "slug": "lock-series"}, headers=admin_headers).json()
++    # test_bettor2 devient mod de cette série
++    client.post("/admin/mod-scopes", json={"user_id": second_bettor_id, "series_id": series["id"]}, headers=admin_headers)
++    return series
++
++
++def _new_event(client, headers, series_id, title):
++    resp = client.post("/events/", json={"title": title, "series_id": series_id, "outcomes": ["Yes", "No"],
++                                          "fee_bps": 200, "tag_ids": [], "locks_at": _future()}, headers=headers)
++    assert resp.status_code == 201, resp.text
++    return resp.json()
++
++
++# ── Verrouillage / réouverture ───────────────────────────────────────────────
++
++@pytest.mark.order(110)
++def test_mod_can_lock_and_reopen_in_own_series(client, lock_series, second_bettor_headers):
++    ev = _new_event(client, second_bettor_headers, lock_series["id"], "Lock me")
++    assert client.patch(f"/events/{ev['id']}/lock", headers=second_bettor_headers).status_code == 200
++    assert client.get(f"/events/{ev['id']}").json()["status"] == "locked"
++    resp = client.patch(f"/events/{ev['id']}/reopen", json={"locks_at": _future(48)}, headers=second_bettor_headers)
++    assert resp.status_code == 200
++    assert client.get(f"/events/{ev['id']}").json()["status"] == "open"
++
++
++@pytest.mark.order(111)
++def test_regular_user_cannot_lock_or_reopen(client, lock_series, admin_headers, bettor_headers):
++    ev = _new_event(client, admin_headers, lock_series["id"], "Not yours")
++    assert client.patch(f"/events/{ev['id']}/lock", headers=bettor_headers).status_code == 403
++    client.patch(f"/events/{ev['id']}/lock", headers=admin_headers)
++    assert client.patch(f"/events/{ev['id']}/reopen", json={"locks_at": _future()}, headers=bettor_headers).status_code == 403
++
++
++@pytest.mark.order(112)
++def test_only_open_events_can_be_locked(client, lock_series, admin_headers):
++    ev = _new_event(client, admin_headers, lock_series["id"], "Double lock")
++    assert client.patch(f"/events/{ev['id']}/lock", headers=admin_headers).status_code == 200
++    assert client.patch(f"/events/{ev['id']}/lock", headers=admin_headers).status_code == 409
++
++
++@pytest.mark.order(113)
++def test_locking_a_resolved_event_is_refused(client, lock_series, admin_headers):
++    # Avant le correctif, ceci ramenait l'event résolu à 'locked'.
++    ev = _new_event(client, admin_headers, lock_series["id"], "Already resolved")
++    client.post(f"/events/{ev['id']}/resolve", json={"winning_outcome_id": ev["outcomes"][0]["id"],
++                                                    "evidence_url": "https://proof"}, headers=admin_headers)
++    assert client.patch(f"/events/{ev['id']}/lock", headers=admin_headers).status_code == 409
++    assert client.get(f"/events/{ev['id']}").json()["status"] == "resolved_pending_dispute"
++
++
++@pytest.mark.order(114)
++def test_reopen_requires_future_deadline_and_locked_status(client, lock_series, admin_headers):
++    ev = _new_event(client, admin_headers, lock_series["id"], "Reopen rules")
++    past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
++    # pas encore verrouillé
++    assert client.patch(f"/events/{ev['id']}/reopen", json={"locks_at": _future()}, headers=admin_headers).status_code == 409
++    client.patch(f"/events/{ev['id']}/lock", headers=admin_headers)
++    assert client.patch(f"/events/{ev['id']}/reopen", json={"locks_at": past}, headers=admin_headers).status_code == 400
++
++
++@pytest.mark.order(115)
++def test_bets_work_again_after_reopen(client, lock_series, admin_headers, bettor_headers):
++    ev = _new_event(client, admin_headers, lock_series["id"], "Bet after reopen")
++    outcome = ev["outcomes"][0]["id"]
++    client.patch(f"/events/{ev['id']}/lock", headers=admin_headers)
++    locked = client.post("/bets/", json={"event_id": ev["id"], "outcome_id": outcome, "points_placed": 10}, headers=bettor_headers)
++    assert locked.status_code in (400, 409)  # refusé tant que verrouillé
++    client.patch(f"/events/{ev['id']}/reopen", json={"locks_at": _future()}, headers=admin_headers)
++    reopened = client.post("/bets/", json={"event_id": ev["id"], "outcome_id": outcome, "points_placed": 10}, headers=bettor_headers)
++    assert reopened.status_code == 201, reopened.text
++
++
++# ── Emails d'équipe ──────────────────────────────────────────────────────────
++
++@pytest.fixture
++def captured_emails(monkeypatch):
++    """Active l'envoi avec une fausse config et capture les emails sans réseau."""
++    sent = []
++    monkeypatch.setattr(email_utils.settings, "resend_api_key", "test-key")
++    monkeypatch.setattr(email_utils.settings, "notify_email", "team@example.com")
++    monkeypatch.setattr(email_utils, "_send", lambda subject, text: sent.append((subject, text)))
++
++    class _SyncThread:  # exécute tout de suite au lieu d'un vrai thread
++        def __init__(self, target, args=(), daemon=None):
++            self._target, self._args = target, args
++        def start(self):
++            self._target(*self._args)
++
++    monkeypatch.setattr(email_utils.threading, "Thread", _SyncThread)
++    return sent
++
++
++@pytest.mark.order(116)
++def test_dispute_sends_team_email(client, lock_series, admin_headers, bettor_headers, captured_emails):
++    ev = _new_event(client, admin_headers, lock_series["id"], "Dispute me")
++    client.post(f"/events/{ev['id']}/resolve", json={"winning_outcome_id": ev["outcomes"][0]["id"],
++                                                    "evidence_url": "https://proof"}, headers=admin_headers)
++    resp = client.post(f"/events/{ev['id']}/dispute", json={"counter_evidence_url": "https://counter"}, headers=bettor_headers)
++    assert resp.status_code == 201
++    assert any("Dispute opened: Dispute me" in subject and "https://counter" in text for subject, text in captured_emails)
++
++
++@pytest.mark.order(117)
++def test_event_proposal_sends_team_email(client, lock_series, bettor_headers, captured_emails):
++    client.post("/events/propose", json={"title": "Will X happen?", "series_id": lock_series["id"],
++                                         "outcomes": ["Yes", "No"]}, headers=bettor_headers)
++    assert any("New event proposal: Will X happen?" in subject for subject, _ in captured_emails)
++
++
++def test_no_email_when_not_configured(monkeypatch):
++    calls = []
++    monkeypatch.setattr(email_utils.settings, "resend_api_key", None)
++    monkeypatch.setattr(email_utils, "_send", lambda *a: calls.append(a))
++    email_utils.send_team_email("s", "t")
++    assert calls == []
++
++
++def test_email_failure_never_raises(monkeypatch):
++    def boom(*a, **k):
++        raise ConnectionError("network down")
++    monkeypatch.setattr(email_utils.httpx, "post", boom)
++    email_utils._send("subject", "text")  # ne doit pas lever d'exception
+diff --git a/frontend/web/src/components/panel/ControlPanel.tsx b/frontend/web/src/components/panel/ControlPanel.tsx
+index 4b7fba2..10502ce 100644
+--- a/frontend/web/src/components/panel/ControlPanel.tsx
++++ b/frontend/web/src/components/panel/ControlPanel.tsx
+@@ -420,11 +420,31 @@ function ManageEvents({ events, token, API, onRefresh, canFeature = true}: { eve
+   const [carouselLoading, setCarouselLoading] = React.useState<number | null>(null)
+   const [finalizing, setFinalizing] = React.useState<number | null>(null)
+   const [filter, setFilter] = React.useState("all")
++  const [reopening, setReopening] = React.useState<number | null>(null)
++  const [reopenDates, setReopenDates] = React.useState<Record<number, string>>({})
+ 
+   const filtered = filter === "all" ? events : events.filter((e) => e.status === filter)
+ 
+   async function lockEvent(id: number) {
+-    await fetch(`${API}/events/${id}/lock`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } })
++    const res = await fetch(`${API}/events/${id}/lock`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } })
++    if (!res.ok) alert((await res.json().catch(() => null))?.detail ?? `Error (${res.status})`)
++    onRefresh()
++  }
++
++  async function reopenEvent(id: number) {
++    const value = reopenDates[id]
++    if (!value) return alert("Pick the new betting deadline")
++    const res = await fetch(`${API}/events/${id}/reopen`, {
++      method: "PATCH",
++      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
++      // datetime-local est en heure locale : on convertit en ISO (UTC) pour le backend
++      body: JSON.stringify({ locks_at: new Date(value).toISOString() }),
++    })
++    if (!res.ok) {
++      alert((await res.json().catch(() => null))?.detail ?? `Error (${res.status})`)
++      return
++    }
++    setReopening(null)
+     onRefresh()
+   }
+ 
+@@ -507,6 +527,9 @@ function ManageEvents({ events, token, API, onRefresh, canFeature = true}: { eve
+                 {event.status === "open" && (
+                   <button onClick={() => lockEvent(event.id)} className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-400 hover:bg-yellow-500/20 transition">🔒 Lock</button>
+                 )}
++                {event.status === "locked" && (
++                  <button onClick={() => setReopening(reopening === event.id ? null : event.id)} className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/20 transition">🔓 Reopen</button>
++                )}
+                 {(event.status === "open" || event.status === "locked") && (
+                   <button onClick={() => setResolving(resolving === event.id ? null : event.id)} className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-500/20 transition">✓ Resolve</button>
+                 )}
+@@ -532,6 +555,25 @@ function ManageEvents({ events, token, API, onRefresh, canFeature = true}: { eve
+                 
+               </div>
+             </div>
++            {reopening === event.id && (
++              <div className="mt-3 rounded-xl border border-border/50 bg-background/40 p-3">
++                <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
++                  New betting deadline — set it before the next chapter&apos;s leaks
++                </label>
++                <div className="flex flex-wrap gap-2">
++                  <input
++                    type="datetime-local"
++                    className="h-9 rounded-xl border border-border/70 bg-background/40 px-3 text-xs outline-none transition focus:border-primary/50"
++                    value={reopenDates[event.id] ?? ""}
++                    onChange={(e) => setReopenDates({ ...reopenDates, [event.id]: e.target.value })}
++                  />
++                  <button onClick={() => reopenEvent(event.id)} disabled={!reopenDates[event.id]}
++                    className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50 transition">
++                    Confirm reopen
++                  </button>
++                </div>
++              </div>
++            )}
+             {resolving === event.id && (
+               <div className="mt-3 rounded-xl border border-border/50 bg-background/40 p-3">
+                 <p className="mb-2 text-xs text-muted-foreground font-medium">Winning Outcome :</p>

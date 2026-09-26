@@ -180,11 +180,33 @@ def create_event(title: str, description: str | None, series_id: int | None,
     return Event(**event_row), [EventOutcome(**row) for row in outcome_rows]
 
 
-def lock_event(event_id: int) -> None:
+def lock_event(event_id: int) -> bool:
+    """Verrouille un event OUVERT uniquement. Renvoie False sinon : sans cette
+    condition, "verrouiller" un event déjà résolu le ramenait à 'locked' et
+    cassait le cycle résolution -> dispute -> paiement."""
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE events SET status = 'locked' WHERE id = %s", (event_id,))
+            cur.execute(
+                "UPDATE events SET status = 'locked' WHERE id = %s AND status = 'open' RETURNING id",
+                (event_id,),
+            )
+            locked = cur.fetchone() is not None
         conn.commit()
+    return locked
+
+
+def reopen_event(event_id: int, locks_at) -> bool:
+    """Rouvre un event VERROUILLÉ avec une nouvelle date limite (typiquement :
+    le chapitre est sorti sans trancher la question)."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE events SET status = 'open', locks_at = %s WHERE id = %s AND status = 'locked' RETURNING id",
+                (locks_at, event_id),
+            )
+            reopened = cur.fetchone() is not None
+        conn.commit()
+    return reopened
 
 
 def place_bet(user_id: int, outcome_id: int, points_placed: int) -> Bet:

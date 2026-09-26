@@ -9,6 +9,7 @@ from app.db import pool
 from app.models.moderation import ModScope, EventProposal, ResolutionDispute, Notification
 from app.models.event import Event, EventOutcome
 from app.utils import bet_utils
+from app.utils import email_utils
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +264,11 @@ def notify_owners(type_: str, payload: dict) -> None:
             owner_ids = [row["id"] for row in cur.fetchall()]
     for uid in owner_ids:
         notify(uid, type_, payload)
+    # En plus des notifications en base, un email part vers l'adresse de
+    # l'équipe (une seule fois, quel que soit le nombre de comptes owner).
+    email = email_utils.build_notification_email(type_, payload)
+    if email:
+        email_utils.send_team_email(*email)
 
 
 def notify_mods_for_series(series_id: int, type_: str, payload: dict) -> None:

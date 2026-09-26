@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.models.event import (
     Event, EventOutcome, EventWithOutcomes,
-    CreateEventRequest, ResolveEventRequest,
+    CreateEventRequest, ResolveEventRequest, ReopenEventRequest,
 )
 from app.models.moderation import RaiseDisputeRequest
 
@@ -120,6 +120,13 @@ async def dispute_event(event_id: int, request: RaiseDisputeRequest, current_use
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+
+    event = bet_utils.get_event_by_id(event_id)
+    moderation_utils.notify_owners("dispute_opened", {
+        "event_id": event_id,
+        "title": event.title if event else "",
+        "counter_evidence_url": request.counter_evidence_url,
+    })
     return {"dispute_id": dispute_id}
 
 
@@ -150,13 +157,40 @@ async def finalize_payout(event_id: int, current_user: user_dependency):
 
     return {"message": "Payout finalized"}
 
+def _require_event_manager(current_user, event) -> None:
+    """Admin/owner, ou mod de la série de l'event."""
+    if current_user.role in ("admin", "owner"):
+        return
+    if event.series_id is not None and moderation_utils.is_mod_for_series(
+        auth_utils.get_user_id(current_user.username), event.series_id
+    ):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only, or a mod for this series")
+
+
 @EventRouter.patch("/{event_id}/lock", status_code=status.HTTP_200_OK)
 async def lock_event(event_id: int, current_user: user_dependency):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
-
-    bet_utils.lock_event(event_id)
+    event = bet_utils.get_event_by_id(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_manager(current_user, event)
+    if not bet_utils.lock_event(event_id):
+        raise HTTPException(status_code=409, detail=f"Only open events can be locked (status: {event.status})")
     return {"message": "Event locked"}
+
+
+@EventRouter.patch("/{event_id}/reopen", status_code=status.HTTP_200_OK)
+async def reopen_event(event_id: int, request: ReopenEventRequest, current_user: user_dependency):
+    event = bet_utils.get_event_by_id(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _require_event_manager(current_user, event)
+    locks_at = request.locks_at if request.locks_at.tzinfo else request.locks_at.replace(tzinfo=UTC)
+    if locks_at <= datetime.now(UTC):
+        raise HTTPException(status_code=400, detail="The new betting deadline must be in the future")
+    if not bet_utils.reopen_event(event_id, locks_at):
+        raise HTTPException(status_code=409, detail=f"Only locked events can be reopened (status: {event.status})")
+    return {"message": "Event reopened"}
 
 
 @EventRouter.post("/{event_id}/admin-carousel", status_code=status.HTTP_201_CREATED)

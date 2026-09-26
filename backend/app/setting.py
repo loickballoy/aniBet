@@ -27,6 +27,11 @@ DISCORD_REDIRECT_URI =os.getenv("DISCORD_REDIRECT_URI")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
+# Emails (Resend). Tous optionnels : sans clé, aucun email n'est envoyé.
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "aniBet <notifications@anibet.io>")
+
 R2_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
 R2_ACCESS_KEY_ID = os.getenv("CLOUDFLARE_ACCESS_KEY_ID")
 R2_SECRET_ACCESS_KEY = os.getenv("CLOUDFLARE_SECRET_ACCESS_KEY")
@@ -50,6 +55,10 @@ class Settings:
     discord_redirect_uri: str = DISCORD_REDIRECT_URI
 
     frontend_url: str = FRONTEND_URL
+
+    resend_api_key: str | None = RESEND_API_KEY
+    notify_email: str | None = NOTIFY_EMAIL
+    email_from: str = EMAIL_FROM
 
     r2_account_id: str = R2_ACCOUNT_ID
     r2_access_key_id: str = R2_ACCESS_KEY_ID

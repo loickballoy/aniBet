@@ -47,6 +47,12 @@ class CreateEventRequest(BaseModel):
     tag_ids: list[int] = []
 
 
+class ReopenEventRequest(BaseModel):
+    # Nouvelle date limite obligatoire : rouvrir sans date laisserait parier
+    # indéfiniment, y compris après le prochain leak.
+    locks_at: datetime
+
+
 class ResolveEventRequest(BaseModel):
     winning_outcome_id: int
     evidence_url: str

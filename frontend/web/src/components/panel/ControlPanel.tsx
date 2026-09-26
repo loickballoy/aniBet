@@ -420,11 +420,31 @@ function ManageEvents({ events, token, API, onRefresh, canFeature = true}: { eve
   const [carouselLoading, setCarouselLoading] = React.useState<number | null>(null)
   const [finalizing, setFinalizing] = React.useState<number | null>(null)
   const [filter, setFilter] = React.useState("all")
+  const [reopening, setReopening] = React.useState<number | null>(null)
+  const [reopenDates, setReopenDates] = React.useState<Record<number, string>>({})
 
   const filtered = filter === "all" ? events : events.filter((e) => e.status === filter)
 
   async function lockEvent(id: number) {
-    await fetch(`${API}/events/${id}/lock`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } })
+    const res = await fetch(`${API}/events/${id}/lock`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) alert((await res.json().catch(() => null))?.detail ?? `Error (${res.status})`)
+    onRefresh()
+  }
+
+  async function reopenEvent(id: number) {
+    const value = reopenDates[id]
+    if (!value) return alert("Pick the new betting deadline")
+    const res = await fetch(`${API}/events/${id}/reopen`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      // datetime-local est en heure locale : on convertit en ISO (UTC) pour le backend
+      body: JSON.stringify({ locks_at: new Date(value).toISOString() }),
+    })
+    if (!res.ok) {
+      alert((await res.json().catch(() => null))?.detail ?? `Error (${res.status})`)
+      return
+    }
+    setReopening(null)
     onRefresh()
   }
 
@@ -507,6 +527,9 @@ function ManageEvents({ events, token, API, onRefresh, canFeature = true}: { eve
                 {event.status === "open" && (
                   <button onClick={() => lockEvent(event.id)} className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-400 hover:bg-yellow-500/20 transition">🔒 Lock</button>
                 )}
+                {event.status === "locked" && (
+                  <button onClick={() => setReopening(reopening === event.id ? null : event.id)} className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/20 transition">🔓 Reopen</button>
+                )}
                 {(event.status === "open" || event.status === "locked") && (
                   <button onClick={() => setResolving(resolving === event.id ? null : event.id)} className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-500/20 transition">✓ Resolve</button>
                 )}
@@ -532,6 +555,25 @@ function ManageEvents({ events, token, API, onRefresh, canFeature = true}: { eve
                 
               </div>
             </div>
+            {reopening === event.id && (
+              <div className="mt-3 rounded-xl border border-border/50 bg-background/40 p-3">
+                <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                  New betting deadline — set it before the next chapter&apos;s leaks
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    type="datetime-local"
+                    className="h-9 rounded-xl border border-border/70 bg-background/40 px-3 text-xs outline-none transition focus:border-primary/50"
+                    value={reopenDates[event.id] ?? ""}
+                    onChange={(e) => setReopenDates({ ...reopenDates, [event.id]: e.target.value })}
+                  />
+                  <button onClick={() => reopenEvent(event.id)} disabled={!reopenDates[event.id]}
+                    className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50 transition">
+                    Confirm reopen
+                  </button>
+                </div>
+              </div>
+            )}
             {resolving === event.id && (
               <div className="mt-3 rounded-xl border border-border/50 bg-background/40 p-3">
                 <p className="mb-2 text-xs text-muted-foreground font-medium">Winning Outcome :</p>
