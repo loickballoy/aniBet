@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, UTC
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -135,6 +135,13 @@ async def finalize_payout(event_id: int, current_user: user_dependency):
     )
     if not is_authorized:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a mod for this event's series")
+
+    if current_user.role not in ("admin", "owner") and event.resolved_at is not None:
+        resolved_at = event.resolved_at if event.resolved_at.tzinfo else event.resolved_at.replace(tzinfo=UTC)
+        opens_at = resolved_at + DISPUTE_WINDOW
+        if datetime.now(UTC) < opens_at:
+            hours_left = int((opens_at - datetime.now(UTC)).total_seconds() // 3600) + 1
+            raise HTTPException(status_code=409, detail=f"Dispute window still open — payout available in ~{hours_left}h")
 
     try:
         bet_utils.finalize_payout(event_id)
