@@ -3,7 +3,7 @@ import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 
 export const metadata = { title: "Privacy Policy — aniBet" }
 
-const CONTACT_EMAIL = "anibet@gmail.com" // TODO: replace with your real contact address
+const CONTACT_EMAIL = "contact@anibet.io"
 const LAST_UPDATED = "September 25, 2026"
 
 export default function PrivacyPage() {
