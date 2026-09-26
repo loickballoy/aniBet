@@ -22,6 +22,10 @@ import subprocess
 from pathlib import Path
 
 import psycopg
+
+# La suite crée de nombreux comptes depuis la même "IP" (le TestClient) :
+# on coupe le rate limiter ici, il est testé directement dans test_11_security.
+os.environ.setdefault("DISABLE_RATE_LIMIT", "1")
 import pytest
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row

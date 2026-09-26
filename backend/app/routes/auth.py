@@ -13,6 +13,7 @@ from app.models.user import User, UserInDB
 from app.setting import settings
 from app.utils import auth_utils
 from app.utils import db_utils
+from app.utils.rate_limit import login_limiter, signup_limiter
 from app.validators.validators import (
     DiscordUser, GoogleUser, Token, RefreshTokenRequest,
     ChangeUsernameRequest, ChangeAvatarRequest,
@@ -72,11 +73,14 @@ async def auth_discord(request: Request):
 
 def _issue_tokens_and_redirect(user) -> RedirectResponse:
     user_id = auth_utils.get_user_id(user.username)
-    access_token = auth_utils.create_refresh_token(user.username,  user_id, timedelta(days=7))
-    refresh_token = auth_utils.create_refresh_token(user.username,user_id, timedelta(days=14))
-    return RedirectResponse(f"{FRONTEND_URL}/auth?access_token={access_token}&refresh_token={refresh_token}")
+    access_token = auth_utils.create_access_token(user.username, user_id)
+    refresh_token = auth_utils.create_refresh_token(user.username, user_id)
+    # Tokens dans le fragment (#) et non dans la query (?) : le fragment n'est
+    # jamais envoyé au serveur, donc il n'apparaît dans aucun log (Vercel,
+    # Cloudflare) ni dans l'en-tête Referer. La page /auth l'efface aussitôt lu.
+    return RedirectResponse(f"{FRONTEND_URL}/auth#access_token={access_token}&refresh_token={refresh_token}")
 
-@AuthRouter.post('/signup', tags=["auth"])
+@AuthRouter.post('/signup', tags=["auth"], dependencies=[Depends(signup_limiter)])
 async def signup(user: UserInDB) -> dict[str, Any]:
     if not user.password_hash:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password is required")
@@ -90,11 +94,11 @@ async def signup(user: UserInDB) -> dict[str, Any]:
 
     return {"message": "User created successfully"}
 
-@AuthRouter.get("/get-user", status_code=status.HTTP_201_CREATED)
+@AuthRouter.get("/get-user", status_code=status.HTTP_200_OK)
 async def get_user(user: auth_utils.user_dependency):
     return user
 
-@AuthRouter.post("/token", response_model=Token, status_code=status.HTTP_200_OK)
+@AuthRouter.post("/token", response_model=Token, status_code=status.HTTP_200_OK, dependencies=[Depends(login_limiter)])
 async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
     user = auth_utils.authenticate_user(form_data.username, form_data.password)
 
@@ -109,14 +113,14 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
 
 @AuthRouter.post("/refresh", response_model=Token)
 async def refresh_acess_token(refresh_token_request: RefreshTokenRequest):
-    token= refresh_token_request.refresh_token
+    payload = auth_utils.decode_refresh_token(refresh_token_request.refresh_token)
+    user = auth_utils.get_user_by_id(payload["id"])
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
 
-    if auth_utils.token_expired(token):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is expired")
-
-    payload = auth_utils.decode_token(token)
-    access_token = auth_utils.create_access_token(payload["sub"], payload["id"], timedelta(days=7))
-    new_refresh_token = auth_utils.create_access_token(payload["sub"], payload["id"], timedelta(days=14))
+    # Rotation : chaque refresh émet une nouvelle paire.
+    access_token = auth_utils.create_access_token(user.username, payload["id"])
+    new_refresh_token = auth_utils.create_refresh_token(user.username, payload["id"])
 
     return {"access_token": access_token, "refresh_token": new_refresh_token, "token_type": "bearer"}
 

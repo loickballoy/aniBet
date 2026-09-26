@@ -1,0 +1,814 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..eb7a58a
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,90 @@
++name: CI
++
++on:
++  push:
++    branches: [main]
++  pull_request:
++
++# Une nouvelle exécution sur la même branche annule la précédente.
++concurrency:
++  group: ci-${{ github.ref }}
++  cancel-in-progress: true
++
++jobs:
++  backend:
++    name: Backend · pytest
++    runs-on: ubuntu-latest
++    services:
++      postgres:
++        image: postgres:16
++        env:
++          POSTGRES_USER: anibet
++          POSTGRES_PASSWORD: anibet_dev_only
++          POSTGRES_DB: anibet
++        ports:
++          - 5432:5432
++        options: >-
++          --health-cmd "pg_isready -U anibet"
++          --health-interval 5s
++          --health-timeout 5s
++          --health-retries 10
++    defaults:
++      run:
++        working-directory: backend
++    env:
++      # Base jetable : conftest.py la recrée et y rejoue toutes les migrations.
++      DATABASE_URL: postgresql://anibet:anibet_dev_only@localhost:5432/anibet_test
++      SECRET_KEY: ci-only-secret
++      SESSION_SECRET_KEY: ci-only-session-secret
++      FRONTEND_URL: http://localhost:3000
++      GOOGLE_CLIENT_ID: ci
++      GOOGLE_CLIENT_SECRET: ci
++      GOOGLE_REDIRECT_URI: http://localhost:8000/auth/callback/google
++      DISCORD_CLIENT_ID: ci
++      DISCORD_CLIENT_SECRET: ci
++      DISCORD_REDIRECT_URI: http://localhost:8000/auth/callback/discord
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-python@v5
++        with:
++          python-version: "3.12"
++          cache: pip
++          cache-dependency-path: backend/requirements*.txt
++
++      - name: Install psql (used by conftest to replay migrations)
++        run: which psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
++
++      - name: Install dependencies
++        run: pip install -r requirements.txt -r requirements-dev.txt
++
++      - name: Run tests
++        run: python -m pytest tests/ -v --html=report.html --self-contained-html
++
++      - name: Upload test report
++        if: always()
++        uses: actions/upload-artifact@v4
++        with:
++          name: backend-test-report
++          path: backend/report.html
++
++  frontend:
++    name: Frontend · typecheck
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: frontend/web
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: actions/setup-node@v4
++        with:
++          node-version: 22
++          cache: npm
++          cache-dependency-path: frontend/web/package-lock.json
++
++      - name: Install dependencies
++        run: npm ci
++
++      - name: Typecheck
++        run: npx tsc --noEmit
+diff --git a/.github/workflows/main.yml b/.github/workflows/main.yml
+deleted file mode 100644
+index 8ff78c2..0000000
+--- a/.github/workflows/main.yml
++++ /dev/null
+@@ -1,34 +0,0 @@
+-name: Daily Timestamp Commit
+-
+-# Give the workflow permission to write repository contents
+-permissions:
+-  contents: write
+-
+-on:
+-  schedule:
+-    - cron: "0 0 * * *"
+-  workflow_dispatch:
+-
+-jobs:
+-  commit:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - name: Checkout repository
+-        uses: actions/checkout@v4
+-        with:
+-          persist-credentials: true
+-          fetch-depth: 0
+-
+-      - name: Update timestamp file
+-        run: |
+-          date -u +"%Y-%m-%d %H:%M:%S UTC" > last-updated.txt
+-
+-      - name: Commit changes
+-        run: |
+-          git config user.name "GitHub Action Bot"
+-          git config user.email "actions@github.com"
+-          git add last-updated.txt
+-          git commit -m "chore: update timestamp $(date -u +"%Y-%m-%d %H:%M:%S UTC")" || echo "No changes to commit"
+-
+-      - name: Push changes
+-        run: git push origin HEAD:${{ github.ref_name }}
+diff --git a/backend/app/main.py b/backend/app/main.py
+index be69b95..5ae2d13 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -1,3 +1,4 @@
++import os
+ from starlette.middleware.sessions import SessionMiddleware
+ from fastapi import FastAPI
+ from fastapi.middleware.cors import CORSMiddleware
+@@ -19,13 +20,22 @@ from app.routes.upload import UploadsRouter
+ 
+ from app.setting import settings
+ 
+-app = FastAPI()
++IS_PROD = os.getenv("ENV") == "production"
++
++# En prod, pas de Swagger / ReDoc / schéma OpenAPI publics.
++app = FastAPI(
++    docs_url=None if IS_PROD else "/docs",
++    redoc_url=None if IS_PROD else "/redoc",
++    openapi_url=None if IS_PROD else "/openapi.json",
++)
+ 
+ app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key)
+ 
+ app.add_middleware(
+     CORSMiddleware,
+-    allow_origins=[settings.frontend_url],  # ex: "https://anibet.vercel.app"
++    allow_origins=[settings.frontend_url] + [
++        o.strip() for o in os.getenv("EXTRA_CORS_ORIGINS", "").split(",") if o.strip()
++    ],
+     allow_credentials=True,                 # required for cookies
+     allow_methods=["*"],
+     allow_headers=["*"],
+diff --git a/backend/app/routes/auth.py b/backend/app/routes/auth.py
+index f294750..a271f00 100644
+--- a/backend/app/routes/auth.py
++++ b/backend/app/routes/auth.py
+@@ -13,6 +13,7 @@ from app.models.user import User, UserInDB
+ from app.setting import settings
+ from app.utils import auth_utils
+ from app.utils import db_utils
++from app.utils.rate_limit import login_limiter, signup_limiter
+ from app.validators.validators import (
+     DiscordUser, GoogleUser, Token, RefreshTokenRequest,
+     ChangeUsernameRequest, ChangeAvatarRequest,
+@@ -72,11 +73,14 @@ async def auth_discord(request: Request):
+ 
+ def _issue_tokens_and_redirect(user) -> RedirectResponse:
+     user_id = auth_utils.get_user_id(user.username)
+-    access_token = auth_utils.create_refresh_token(user.username,  user_id, timedelta(days=7))
+-    refresh_token = auth_utils.create_refresh_token(user.username,user_id, timedelta(days=14))
+-    return RedirectResponse(f"{FRONTEND_URL}/auth?access_token={access_token}&refresh_token={refresh_token}")
+-
+-@AuthRouter.post('/signup', tags=["auth"])
++    access_token = auth_utils.create_access_token(user.username, user_id)
++    refresh_token = auth_utils.create_refresh_token(user.username, user_id)
++    # Tokens dans le fragment (#) et non dans la query (?) : le fragment n'est
++    # jamais envoyé au serveur, donc il n'apparaît dans aucun log (Vercel,
++    # Cloudflare) ni dans l'en-tête Referer. La page /auth l'efface aussitôt lu.
++    return RedirectResponse(f"{FRONTEND_URL}/auth#access_token={access_token}&refresh_token={refresh_token}")
++
++@AuthRouter.post('/signup', tags=["auth"], dependencies=[Depends(signup_limiter)])
+ async def signup(user: UserInDB) -> dict[str, Any]:
+     if not user.password_hash:
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password is required")
+@@ -90,11 +94,11 @@ async def signup(user: UserInDB) -> dict[str, Any]:
+ 
+     return {"message": "User created successfully"}
+ 
+-@AuthRouter.get("/get-user", status_code=status.HTTP_201_CREATED)
++@AuthRouter.get("/get-user", status_code=status.HTTP_200_OK)
+ async def get_user(user: auth_utils.user_dependency):
+     return user
+ 
+-@AuthRouter.post("/token", response_model=Token, status_code=status.HTTP_200_OK)
++@AuthRouter.post("/token", response_model=Token, status_code=status.HTTP_200_OK, dependencies=[Depends(login_limiter)])
+ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+     user = auth_utils.authenticate_user(form_data.username, form_data.password)
+ 
+@@ -109,14 +113,14 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
+ 
+ @AuthRouter.post("/refresh", response_model=Token)
+ async def refresh_acess_token(refresh_token_request: RefreshTokenRequest):
+-    token= refresh_token_request.refresh_token
+-
+-    if auth_utils.token_expired(token):
+-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is expired")
+-
+-    payload = auth_utils.decode_token(token)
+-    access_token = auth_utils.create_access_token(payload["sub"], payload["id"], timedelta(days=7))
+-    new_refresh_token = auth_utils.create_access_token(payload["sub"], payload["id"], timedelta(days=14))
++    payload = auth_utils.decode_refresh_token(refresh_token_request.refresh_token)
++    user = auth_utils.get_user_by_id(payload["id"])
++    if user is None:
++        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
++
++    # Rotation : chaque refresh émet une nouvelle paire.
++    access_token = auth_utils.create_access_token(user.username, payload["id"])
++    new_refresh_token = auth_utils.create_refresh_token(user.username, payload["id"])
+ 
+     return {"access_token": access_token, "refresh_token": new_refresh_token, "token_type": "bearer"}
+ 
+diff --git a/backend/app/utils/auth_utils.py b/backend/app/utils/auth_utils.py
+index 5014334..666a828 100644
+--- a/backend/app/utils/auth_utils.py
++++ b/backend/app/utils/auth_utils.py
+@@ -5,7 +5,7 @@ from authlib.integrations.starlette_client import OAuth
+ from fastapi import Depends, HTTPException, status
+ from fastapi.security import OAuth2PasswordBearer
+ from jose import jwt, JWTError
+-from passlib.context import CryptContext
++import bcrypt
+ from starlette.config import Config
+ 
+ from app.db import pool
+@@ -15,7 +15,6 @@ from app.validators.validators import GoogleUser, DiscordUser
+ 
+ ALGORITHM = "HS256"
+ 
+-bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+ 
+ oauth_bearer = OAuth2PasswordBearer(tokenUrl="auth/token")
+ 
+@@ -115,8 +114,24 @@ def get_user_id(username: str) -> int | None:
+ # Mot de passe
+ #
+ 
+-def get_password_hash(password):
+-    return bcrypt_context.hash(password)
++def _password_bytes(password: str) -> bytes:
++    # bcrypt ne prend en compte que les 72 premiers octets. passlib tronquait
++    # déjà silencieusement : on garde exactement le même comportement pour que
++    # les mots de passe hashés avant la migration restent valides.
++    return password.encode("utf-8")[:72]
++
++
++def get_password_hash(password: str) -> str:
++    return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
++
++
++def verify_password(password: str, password_hash: str | None) -> bool:
++    if not password_hash:  # comptes OAuth : pas de mot de passe
++        return False
++    try:
++        return bcrypt.checkpw(_password_bytes(password), password_hash.encode("utf-8"))
++    except ValueError:  # hash malformé
++        return False
+ 
+ def authenticate_user(username: str, password: str) -> User | bool:
+     user = get_user_by_username(username)
+@@ -125,7 +140,7 @@ def authenticate_user(username: str, password: str) -> User | bool:
+         return False
+     if not user.password_hash:
+         return False
+-    if not bcrypt_context.verify(password, user.password_hash):
++    if not verify_password(password, user.password_hash):
+         return False
+ 
+     return user
+@@ -134,29 +149,45 @@ def authenticate_user(username: str, password: str) -> User | bool:
+ # JWT
+ #
+ 
+-def create_access_token(username: str, user_id: int, expires_delta: timedelta):
+-    encode = {"sub": username, "id": user_id}
++ACCESS_TOKEN_TTL = timedelta(days=7)
++REFRESH_TOKEN_TTL = timedelta(days=14)
+ 
+-    expires = datetime.now(UTC) + expires_delta
+ 
+-    encode.update({"exp": expires})
++def _encode_token(username: str, user_id: int, token_type: str, ttl: timedelta) -> str:
++    # Le champ "type" empêche d'utiliser un refresh token comme access token
++    # (et inversement) : avant, les deux étaient strictement identiques.
++    payload = {"sub": username, "id": user_id, "type": token_type, "exp": datetime.now(UTC) + ttl}
++    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
+ 
+-    return jwt.encode(encode, settings.secret_key, algorithm=ALGORITHM)
+ 
++def create_access_token(username: str, user_id: int, expires_delta: timedelta = ACCESS_TOKEN_TTL) -> str:
++    return _encode_token(username, user_id, "access", expires_delta)
+ 
+-def create_refresh_token(username: str, user_id: int, expires_delta: timedelta):
+-    return create_access_token(username, user_id, expires_delta)
++
++def create_refresh_token(username: str, user_id: int, expires_delta: timedelta = REFRESH_TOKEN_TTL) -> str:
++    return _encode_token(username, user_id, "refresh", expires_delta)
+ 
+ 
+ def decode_token(token):
+     return jwt.decode(token, settings.secret_key, algorithms=ALGORITHM)
+ 
+ 
++def decode_refresh_token(token: str) -> dict:
++    """Payload d'un refresh token valide, sinon 401 (expiré, falsifié, ou access token)."""
++    try:
++        payload = decode_token(token)
++    except JWTError:
++        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
++    if payload.get("type") != "refresh" or payload.get("id") is None:
++        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
++    return payload
++
++
+ def get_current_user(token: Annotated[str, Depends(oauth_bearer)]):
+     try:
+         payload = jwt.decode(token, settings.secret_key, algorithms=ALGORITHM)
+         user_id: int | None = payload.get("id")
+-        if user_id is None:
++        if user_id is None or payload.get("type") != "access":
+             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
+         user = get_user_by_id(user_id)
+         if user is None:
+diff --git a/backend/app/utils/rate_limit.py b/backend/app/utils/rate_limit.py
+new file mode 100644
+index 0000000..0da4d1c
+--- /dev/null
++++ b/backend/app/utils/rate_limit.py
+@@ -0,0 +1,60 @@
++"""
++Limitation de débit en mémoire, par IP, pour les routes sensibles aux abus
++(connexion par mot de passe, inscription).
++
++L'IP vient de l'en-tête CF-Connecting-IP ajouté par Cloudflare. C'est fiable
++ICI uniquement parce que le backend de prod n'est joignable que par le tunnel
++Cloudflare : personne ne peut lui parler en direct avec un en-tête forgé.
++
++Limite connue : les compteurs vivent dans chaque worker uvicorn. Avec 2
++workers, un attaquant peut obtenir au pire le double de la limite affichée.
++Suffisant pour bloquer la force brute et la création de comptes en masse ;
++passer à Redis si un jour il faut une limite exacte.
++"""
++
++import os
++import time
++from collections import defaultdict, deque
++from threading import Lock
++
++from fastapi import HTTPException, Request, status
++
++
++def client_ip(request: Request) -> str:
++    return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "unknown")
++
++
++class RateLimiter:
++    def __init__(self, max_requests: int, window_seconds: int):
++        self.max_requests = max_requests
++        self.window = window_seconds
++        self._hits: dict[str, deque[float]] = defaultdict(deque)
++        self._lock = Lock()
++
++    def check(self, key: str) -> None:
++        now = time.monotonic()
++        with self._lock:
++            hits = self._hits[key]
++            while hits and hits[0] <= now - self.window:
++                hits.popleft()
++            if len(hits) >= self.max_requests:
++                retry_after = int(self.window - (now - hits[0])) + 1
++                raise HTTPException(
++                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
++                    detail=f"Too many attempts, try again in {retry_after}s",
++                    headers={"Retry-After": str(retry_after)},
++                )
++            hits.append(now)
++            if len(self._hits) > 10_000:  # évite que la mémoire grossisse sans fin
++                for k in [k for k, v in self._hits.items() if not v or v[-1] <= now - self.window]:
++                    del self._hits[k]
++
++    def __call__(self, request: Request) -> None:
++        # Désactivé par la suite de tests, qui crée beaucoup de comptes depuis la même "IP".
++        if os.getenv("DISABLE_RATE_LIMIT") == "1":
++            return
++        self.check(client_ip(request))
++
++
++login_limiter = RateLimiter(max_requests=10, window_seconds=60)      # 10 tentatives / minute
++signup_limiter = RateLimiter(max_requests=5, window_seconds=3600)    # 5 inscriptions / heure
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+index 5090a90..781e6b1 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -16,7 +16,7 @@ idna==3.20
+ itsdangerous==2.2.0
+ jose==1.0.0
+ joserfc==1.7.5
+-passlib==1.7.4
++bcrypt==4.3.0
+ psycopg[binary,pool]==3.3.6
+ pyasn1==0.6.4
+ pycparser==3.0
+diff --git a/backend/tests/conftest.py b/backend/tests/conftest.py
+index cafc89f..e2e450b 100644
+--- a/backend/tests/conftest.py
++++ b/backend/tests/conftest.py
+@@ -22,6 +22,10 @@ import subprocess
+ from pathlib import Path
+ 
+ import psycopg
++
++# La suite crée de nombreux comptes depuis la même "IP" (le TestClient) :
++# on coupe le rate limiter ici, il est testé directement dans test_11_security.
++os.environ.setdefault("DISABLE_RATE_LIMIT", "1")
+ import pytest
+ from fastapi.testclient import TestClient
+ from psycopg.rows import dict_row
+diff --git a/backend/tests/test_01_auth.py b/backend/tests/test_01_auth.py
+index 904db37..b117f90 100644
+--- a/backend/tests/test_01_auth.py
++++ b/backend/tests/test_01_auth.py
+@@ -60,5 +60,5 @@ def test_protected_route_with_token_returns_current_user(client):
+     token = login.json()["access_token"]
+ 
+     resp = client.get("/auth/get-user", headers={"Authorization": f"Bearer {token}"})
+-    assert resp.status_code == 201  # status_code déclaré ainsi sur cette route
++    assert resp.status_code == 200  # status_code déclaré ainsi sur cette route
+     assert resp.json()["username"] == "alice"
+diff --git a/backend/tests/test_11_security.py b/backend/tests/test_11_security.py
+new file mode 100644
+index 0000000..30bac97
+--- /dev/null
++++ b/backend/tests/test_11_security.py
+@@ -0,0 +1,140 @@
++"""
++Sécurité de l'authentification : types de tokens, rotation, compatibilité des
++anciens hashs de mots de passe, tokens OAuth hors de l'URL, rate limiting.
++"""
++import pytest
++from jose import jwt
++
++from app.setting import settings
++from app.utils import auth_utils
++from app.utils.rate_limit import RateLimiter
++
++# Hash de "pass123" généré par passlib avant la migration vers bcrypt direct.
++LEGACY_PASSLIB_HASH = "$2b$12$.3NONaqGyc50DblY8e0W8uuH0v.8pLb63ddXnZmlOgXttkUozAE9e"
++
++
++def _login(client, username="test_bettor", password="bettorpass123"):
++    resp = client.post("/auth/token", data={"username": username, "password": password})
++    assert resp.status_code == 200
++    return resp.json()
++
++
++# ── Types de tokens ──────────────────────────────────────────────────────────
++
++@pytest.mark.order(100)
++def test_tokens_carry_their_type(client, bettor_headers):
++    tokens = _login(client)
++    access = jwt.decode(tokens["access_token"], settings.secret_key, algorithms=["HS256"])
++    refresh = jwt.decode(tokens["refresh_token"], settings.secret_key, algorithms=["HS256"])
++    assert access["type"] == "access"
++    assert refresh["type"] == "refresh"
++
++
++@pytest.mark.order(101)
++def test_refresh_token_cannot_be_used_as_access_token(client, bettor_headers):
++    tokens = _login(client)
++    resp = client.get("/auth/get-user", headers={"Authorization": f"Bearer {tokens['refresh_token']}"})
++    assert resp.status_code == 401
++
++
++@pytest.mark.order(102)
++def test_access_token_cannot_be_used_to_refresh(client, bettor_headers):
++    tokens = _login(client)
++    resp = client.post("/auth/refresh", json={"refresh_token": tokens["access_token"]})
++    assert resp.status_code == 401
++
++
++@pytest.mark.order(103)
++def test_refresh_rotates_and_new_tokens_work(client, bettor_headers):
++    tokens = _login(client)
++    resp = client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
++    assert resp.status_code == 200
++    new = resp.json()
++    assert client.get("/auth/get-user", headers={"Authorization": f"Bearer {new['access_token']}"}).status_code == 200
++    assert client.post("/auth/refresh", json={"refresh_token": new["refresh_token"]}).status_code == 200
++
++
++@pytest.mark.order(104)
++def test_tampered_refresh_token_is_rejected(client, bettor_headers):
++    forged = jwt.encode({"sub": "x", "id": 1, "type": "refresh"}, "not-the-real-secret", algorithm="HS256")
++    assert client.post("/auth/refresh", json={"refresh_token": forged}).status_code == 401
++
++
++# ── Mots de passe ────────────────────────────────────────────────────────────
++
++def test_legacy_passlib_hash_still_verifies():
++    assert auth_utils.verify_password("pass123", LEGACY_PASSLIB_HASH)
++    assert not auth_utils.verify_password("wrong", LEGACY_PASSLIB_HASH)
++
++
++def test_password_hash_roundtrip_and_oauth_accounts():
++    h = auth_utils.get_password_hash("s3cret!")
++    assert h.startswith("$2b$") and auth_utils.verify_password("s3cret!", h)
++    assert not auth_utils.verify_password("anything", None)  # compte OAuth sans mot de passe
++
++
++def test_long_passwords_behave_like_passlib():
++    # bcrypt ne lit que 72 octets : un mot de passe plus long ne doit pas planter.
++    long_pw = "a" * 100
++    assert auth_utils.verify_password(long_pw, auth_utils.get_password_hash(long_pw))
++
++
++# ── OAuth : tokens dans le fragment, pas dans la query ───────────────────────
++
++@pytest.mark.order(105)
++def test_oauth_redirect_puts_tokens_in_fragment(client, bettor_headers):
++    from app.routes.auth import _issue_tokens_and_redirect
++
++    class _User:
++        username = "test_bettor"
++
++    location = _issue_tokens_and_redirect(_User()).headers["location"]
++    assert "/auth#access_token=" in location
++    assert "?access_token=" not in location
++
++
++# ── Rate limiting ────────────────────────────────────────────────────────────
++
++def test_rate_limiter_blocks_after_limit():
++    limiter = RateLimiter(max_requests=3, window_seconds=60)
++    for _ in range(3):
++        limiter.check("1.2.3.4")
++    with pytest.raises(Exception) as exc:
++        limiter.check("1.2.3.4")
++    assert exc.value.status_code == 429
++    assert "Retry-After" in exc.value.headers
++
++
++def test_rate_limiter_is_per_ip():
++    limiter = RateLimiter(max_requests=1, window_seconds=60)
++    limiter.check("1.1.1.1")
++    limiter.check("2.2.2.2")  # une autre IP n'est pas affectée
++
++
++def test_rate_limiter_window_expires(monkeypatch):
++    import app.utils.rate_limit as rl
++    now = [1000.0]
++    monkeypatch.setattr(rl.time, "monotonic", lambda: now[0])
++    limiter = RateLimiter(max_requests=1, window_seconds=10)
++    limiter.check("9.9.9.9")
++    now[0] += 11
++    limiter.check("9.9.9.9")  # la fenêtre est passée : de nouveau autorisé
++
++
++def test_rate_limit_uses_cloudflare_client_ip(monkeypatch, client):
++    from app.utils import rate_limit
++    monkeypatch.setenv("DISABLE_RATE_LIMIT", "0")
++    monkeypatch.setattr(rate_limit, "login_limiter", rate_limit.login_limiter)
++    rate_limit.login_limiter._hits.clear()
++    try:
++        headers = {"CF-Connecting-IP": "203.0.113.7"}
++        codes = [client.post("/auth/token", data={"username": "nobody", "password": "x"}, headers=headers).status_code
++                 for _ in range(rate_limit.login_limiter.max_requests + 1)]
++        assert codes[:-1] == [401] * rate_limit.login_limiter.max_requests
++        assert codes[-1] == 429
++        # une autre vraie IP derrière Cloudflare n'est pas bloquée
++        other = client.post("/auth/token", data={"username": "nobody", "password": "x"},
++                            headers={"CF-Connecting-IP": "198.51.100.9"})
++        assert other.status_code == 401
++    finally:
++        rate_limit.login_limiter._hits.clear()
+diff --git a/frontend/web/src/app/api/login/route.ts b/frontend/web/src/app/api/login/route.ts
+deleted file mode 100644
+index 5a6ced7..0000000
+--- a/frontend/web/src/app/api/login/route.ts
++++ /dev/null
+@@ -1,32 +0,0 @@
+-import { NextResponse } from "next/server"
+-
+-export async function POST(req: Request) {
+-  const base = process.env.NEXT_PUBLIC_API_URL
+-  if (!base) {
+-    return NextResponse.json({ error: "NEXT_PUBLIC_API_URL missing" }, { status: 500 })
+-  }
+-
+-  const { username, password } = await req.json()
+-
+-  const url = `${base.replace(/\/$/, "")}/auth/token`
+-
+-  const form = new URLSearchParams()
+-  form.set("username", username)
+-  form.set("password", password)
+-
+-  const res = await fetch(url, {
+-    method: "POST",
+-    headers: {
+-      "Content-Type": "application/x-www-form-urlencoded",
+-      Accept: "application/json",
+-    },
+-    body: form.toString(),
+-  })
+-
+-  const text = await res.text().catch(() => "")
+-
+-  return new NextResponse(text, {
+-    status: res.status,
+-    headers: { "Content-Type": res.headers.get("content-type") ?? "application/json" },
+-  })
+-}
+\ No newline at end of file
+diff --git a/frontend/web/src/app/auth/page.tsx b/frontend/web/src/app/auth/page.tsx
+index 62ec527..634c32d 100644
+--- a/frontend/web/src/app/auth/page.tsx
++++ b/frontend/web/src/app/auth/page.tsx
+@@ -1,16 +1,20 @@
+ "use client"
+ 
+ import * as React from "react"
+-import { useRouter, useSearchParams } from "next/navigation"
++import { useRouter } from "next/navigation"
+ import { Suspense } from "react"
+ 
+ function CallbackHandler() {
+   const router = useRouter()
+-  const searchParams = useSearchParams()
+ 
+   React.useEffect(() => {
+-    const access_token  = searchParams.get("access_token")
+-    const refresh_token = searchParams.get("refresh_token")
++    // Les tokens arrivent dans le fragment (#...) : il n'est jamais envoyé au
++    // serveur, donc absent des logs. On l'efface de l'URL dès qu'il est lu,
++    // pour qu'il ne reste pas dans l'historique du navigateur.
++    const params = new URLSearchParams(window.location.hash.slice(1))
++    const access_token  = params.get("access_token")
++    const refresh_token = params.get("refresh_token")
++    window.history.replaceState(null, "", window.location.pathname)
+ 
+     if (!access_token) { router.replace("/"); return }
+ 
+diff --git a/frontend/web/src/app/login/page.tsx b/frontend/web/src/app/login/page.tsx
+index 0b40138..b0d4a2c 100644
+--- a/frontend/web/src/app/login/page.tsx
++++ b/frontend/web/src/app/login/page.tsx
+@@ -93,10 +93,15 @@ function LoginContent() {
+     setError(null)
+     setLoading(true)
+     try {
+-      const res = await fetch("/api/login", {
++      // Appel direct depuis le navigateur (et non via un relais Vercel) : le
++      // rate limiter du backend doit voir l'IP réelle du joueur.
++      const form = new URLSearchParams()
++      form.set("username", loginUsername)
++      form.set("password", loginPassword)
++      const res = await fetch(`${BACKEND}/auth/token`, {
+         method: "POST",
+-        headers: { "Content-Type": "application/json" },
+-        body: JSON.stringify({ username: loginUsername, password: loginPassword }),
++        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
++        body: form.toString(),
+       })
+       const txt = await res.text().catch(() => "")
+       if (!res.ok) {
+diff --git a/frontend/web/src/app/login/page_deprecated.tsx b/frontend/web/src/app/login/page_deprecated.tsx
+deleted file mode 100644
+index 691bac9..0000000
+--- a/frontend/web/src/app/login/page_deprecated.tsx
++++ /dev/null
+@@ -1,108 +0,0 @@
+-"use client"
+-
+-import * as React from "react"
+-import { useRouter, useSearchParams } from "next/navigation"
+-import Link from "next/link"
+-
+-export default function LoginPage() {
+-  const router = useRouter()
+-  const searchParams = useSearchParams()
+-  const next = searchParams.get("next") || "/"
+-
+-  const [username, setUsername] = React.useState("")
+-  const [password, setPassword] = React.useState("")
+-  const [loading, setLoading] = React.useState(false)
+-  const [error, setError] = React.useState<string | null>(null)
+-
+-  async function onSubmit(e: React.FormEvent) {
+-    e.preventDefault()
+-    setError(null)
+-    setLoading(true)
+-
+-    try {
+-      const res = await fetch("/api/login", {
+-        method: "POST",
+-        headers: { "Content-Type": "application/json" },
+-        body: JSON.stringify({ username, password }),
+-      })
+-
+-      const txt = await res.text().catch(() => "")
+-
+-      if (!res.ok) {
+-        // essaye de sortir un message lisible
+-        let msg = txt
+-        try {
+-          const j = JSON.parse(txt)
+-          msg = j?.detail ? String(j.detail) : txt
+-        } catch {}
+-        throw new Error(msg || `Login failed (${res.status})`)
+-      }
+-
+-      const data = JSON.parse(txt)
+-
+-      if (data.access_token) localStorage.setItem("access_token", data.access_token)
+-      if (data.refresh_token) localStorage.setItem("refresh_token", data.refresh_token)
+-
+-      router.push(next)
+-      router.refresh()
+-    } catch (err: any) {
+-      setError(err?.message ?? "Erreur login")
+-    } finally {
+-      setLoading(false)
+-    }
+-  }
+-
+-  return (
+-    <main className="mx-auto w-full max-w-md px-4 py-10">
+-      <div className="mb-6">
+-        <Link href="/" className="text-sm text-muted-foreground hover:underline">
+-          ← Retour
+-        </Link>
+-      </div>
+-
+-      <div className="rounded-2xl border border-border/70 bg-card p-6">
+-        <h1 className="text-xl font-semibold">Connexion</h1>
+-        <p className="mt-1 text-sm text-muted-foreground">Entre ton username et ton mot de passe.</p>
+-
+-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
+-          <div>
+-            <label className="text-xs text-muted-foreground">Username</label>
+-            <input
+-              className="mt-2 h-10 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none"
+-              value={username}
+-              onChange={(e) => setUsername(e.target.value)}
+-              autoComplete="username"
+-              required
+-            />
+-          </div>
+-
+-          <div>
+-            <label className="text-xs text-muted-foreground">Mot de passe</label>
+-            <input
+-              className="mt-2 h-10 w-full rounded-xl border border-border/70 bg-background/40 px-3 text-sm outline-none"
+-              type="password"
+-              value={password}
+-              onChange={(e) => setPassword(e.target.value)}
+-              autoComplete="current-password"
+-              required
+-            />
+-          </div>
+-
+-          {error ? (
+-            <div className="rounded-xl border border-border/70 bg-background/30 p-3 text-sm text-red-300">
+-              {error}
+-            </div>
+-          ) : null}
+-
+-          <button
+-            type="submit"
+-            disabled={loading}
+-            className="h-10 w-full rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+-          >
+-            {loading ? "..." : "Se connecter"}
+-          </button>
+-        </form>
+-      </div>
+-    </main>
+-  )
+-}
+\ No newline at end of file
+diff --git a/last-updated.txt b/last-updated.txt
+deleted file mode 100644
+index 533edb3..0000000
+--- a/last-updated.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-2026-09-26 04:14:09 UTC

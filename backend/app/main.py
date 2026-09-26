@@ -1,3 +1,4 @@
+import os
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,13 +20,22 @@ from app.routes.upload import UploadsRouter
 
 from app.setting import settings
 
-app = FastAPI()
+IS_PROD = os.getenv("ENV") == "production"
+
+# En prod, pas de Swagger / ReDoc / schéma OpenAPI publics.
+app = FastAPI(
+    docs_url=None if IS_PROD else "/docs",
+    redoc_url=None if IS_PROD else "/redoc",
+    openapi_url=None if IS_PROD else "/openapi.json",
+)
 
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url],  # ex: "https://anibet.vercel.app"
+    allow_origins=[settings.frontend_url] + [
+        o.strip() for o in os.getenv("EXTRA_CORS_ORIGINS", "").split(",") if o.strip()
+    ],
     allow_credentials=True,                 # required for cookies
     allow_methods=["*"],
     allow_headers=["*"],

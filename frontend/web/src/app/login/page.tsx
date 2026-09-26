@@ -93,10 +93,15 @@ function LoginContent() {
     setError(null)
     setLoading(true)
     try {
-      const res = await fetch("/api/login", {
+      // Appel direct depuis le navigateur (et non via un relais Vercel) : le
+      // rate limiter du backend doit voir l'IP réelle du joueur.
+      const form = new URLSearchParams()
+      form.set("username", loginUsername)
+      form.set("password", loginPassword)
+      const res = await fetch(`${BACKEND}/auth/token`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: loginUsername, password: loginPassword }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body: form.toString(),
       })
       const txt = await res.text().catch(() => "")
       if (!res.ok) {

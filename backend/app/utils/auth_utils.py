@@ -5,7 +5,7 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 from starlette.config import Config
 
 from app.db import pool
@@ -15,7 +15,6 @@ from app.validators.validators import GoogleUser, DiscordUser
 
 ALGORITHM = "HS256"
 
-bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 oauth_bearer = OAuth2PasswordBearer(tokenUrl="auth/token")
 
@@ -115,8 +114,24 @@ def get_user_id(username: str) -> int | None:
 # Mot de passe
 #
 
-def get_password_hash(password):
-    return bcrypt_context.hash(password)
+def _password_bytes(password: str) -> bytes:
+    # bcrypt ne prend en compte que les 72 premiers octets. passlib tronquait
+    # déjà silencieusement : on garde exactement le même comportement pour que
+    # les mots de passe hashés avant la migration restent valides.
+    return password.encode("utf-8")[:72]
+
+
+def get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str | None) -> bool:
+    if not password_hash:  # comptes OAuth : pas de mot de passe
+        return False
+    try:
+        return bcrypt.checkpw(_password_bytes(password), password_hash.encode("utf-8"))
+    except ValueError:  # hash malformé
+        return False
 
 def authenticate_user(username: str, password: str) -> User | bool:
     user = get_user_by_username(username)
@@ -125,7 +140,7 @@ def authenticate_user(username: str, password: str) -> User | bool:
         return False
     if not user.password_hash:
         return False
-    if not bcrypt_context.verify(password, user.password_hash):
+    if not verify_password(password, user.password_hash):
         return False
 
     return user
@@ -134,29 +149,45 @@ def authenticate_user(username: str, password: str) -> User | bool:
 # JWT
 #
 
-def create_access_token(username: str, user_id: int, expires_delta: timedelta):
-    encode = {"sub": username, "id": user_id}
-
-    expires = datetime.now(UTC) + expires_delta
-
-    encode.update({"exp": expires})
-
-    return jwt.encode(encode, settings.secret_key, algorithm=ALGORITHM)
+ACCESS_TOKEN_TTL = timedelta(days=7)
+REFRESH_TOKEN_TTL = timedelta(days=14)
 
 
-def create_refresh_token(username: str, user_id: int, expires_delta: timedelta):
-    return create_access_token(username, user_id, expires_delta)
+def _encode_token(username: str, user_id: int, token_type: str, ttl: timedelta) -> str:
+    # Le champ "type" empêche d'utiliser un refresh token comme access token
+    # (et inversement) : avant, les deux étaient strictement identiques.
+    payload = {"sub": username, "id": user_id, "type": token_type, "exp": datetime.now(UTC) + ttl}
+    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
+
+
+def create_access_token(username: str, user_id: int, expires_delta: timedelta = ACCESS_TOKEN_TTL) -> str:
+    return _encode_token(username, user_id, "access", expires_delta)
+
+
+def create_refresh_token(username: str, user_id: int, expires_delta: timedelta = REFRESH_TOKEN_TTL) -> str:
+    return _encode_token(username, user_id, "refresh", expires_delta)
 
 
 def decode_token(token):
     return jwt.decode(token, settings.secret_key, algorithms=ALGORITHM)
 
 
+def decode_refresh_token(token: str) -> dict:
+    """Payload d'un refresh token valide, sinon 401 (expiré, falsifié, ou access token)."""
+    try:
+        payload = decode_token(token)
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+    if payload.get("type") != "refresh" or payload.get("id") is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+    return payload
+
+
 def get_current_user(token: Annotated[str, Depends(oauth_bearer)]):
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=ALGORITHM)
         user_id: int | None = payload.get("id")
-        if user_id is None:
+        if user_id is None or payload.get("type") != "access":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
         user = get_user_by_id(user_id)
         if user is None:

@@ -1,16 +1,20 @@
 "use client"
 
 import * as React from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { Suspense } from "react"
 
 function CallbackHandler() {
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   React.useEffect(() => {
-    const access_token  = searchParams.get("access_token")
-    const refresh_token = searchParams.get("refresh_token")
+    // Les tokens arrivent dans le fragment (#...) : il n'est jamais envoyé au
+    // serveur, donc absent des logs. On l'efface de l'URL dès qu'il est lu,
+    // pour qu'il ne reste pas dans l'historique du navigateur.
+    const params = new URLSearchParams(window.location.hash.slice(1))
+    const access_token  = params.get("access_token")
+    const refresh_token = params.get("refresh_token")
+    window.history.replaceState(null, "", window.location.pathname)
 
     if (!access_token) { router.replace("/"); return }
 

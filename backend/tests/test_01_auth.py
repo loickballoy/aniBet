@@ -60,5 +60,5 @@ def test_protected_route_with_token_returns_current_user(client):
     token = login.json()["access_token"]
 
     resp = client.get("/auth/get-user", headers={"Authorization": f"Bearer {token}"})
-    assert resp.status_code == 201  # status_code déclaré ainsi sur cette route
+    assert resp.status_code == 200  # status_code déclaré ainsi sur cette route
     assert resp.json()["username"] == "alice"
