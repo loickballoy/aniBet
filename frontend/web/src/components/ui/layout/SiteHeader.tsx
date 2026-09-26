@@ -18,6 +18,7 @@ export function SiteHeader() {
   const [hasToken, setHasToken] = React.useState(false)
   const [isAdmin, setIsAdmin] = React.useState(false)
   const [menuOpen, setMenuOpen] = React.useState(false)
+  const [isMod, setIsMod] = React.useState(false)
 
   React.useEffect(() => {
     setMenuOpen(false)
@@ -28,6 +29,10 @@ export function SiteHeader() {
         .then((r) => r.json())
         .then((u) => setIsAdmin(u?.role === "admin" || u?.role === "owner"))
         .catch(() => {})
+      fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/mod/scopes/me`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((scopes) => setIsMod(Array.isArray(scopes) && scopes.length > 0))
+        .catch(() => {})
     }
   }, [pathname])
 
@@ -36,6 +41,7 @@ export function SiteHeader() {
     localStorage.removeItem("refresh_token")
     setHasToken(false)
     setIsAdmin(false)
+    setIsMod(false)
     router.push("/")
     router.refresh()
   }
@@ -95,6 +101,14 @@ export function SiteHeader() {
                 <span className="text-base leading-none">+</span> Propose
               </Link>
               <UserWidget />
+                {isMod && !isAdmin && (
+                <Link
+                  href="/mod"
+                  className="rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-[13px] font-medium text-primary transition hover:bg-primary/20"
+                >
+                  Mod
+                </Link>
+              )}
               {isAdmin && (
                 <Link
                   href="/admin"

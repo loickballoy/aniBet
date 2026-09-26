@@ -45,6 +45,8 @@ async def submit_guess(request: WeeklyGuessRequest, current_user: user_dependenc
 async def create_weekly_puzzle(request: CreateWeeklyConnectionsRequest, current_user: user_dependency):
     if current_user.role not in ("admin", "owner"):
         raise HTTPException(status_code=403, detail="Admin only")
+    if request.week_of.weekday() != 6:
+        raise HTTPException(status_code=400, detail="week_of must be a Sunday")
     if len(request.grid) != 16:
         raise HTTPException(status_code=400, detail="Grid must contain exactly 16 characters")
     if len(request.categories) != 4:

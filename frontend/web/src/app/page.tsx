@@ -66,10 +66,15 @@ export default async function HomePage({
     ? `/events?status=open&limit=24&offset=0&series_id=${seriesId}`
     : `/events?status=open&limit=24&offset=0`
 
-  const [events, series] = await Promise.all([
+  const seriesFilter = seriesId ? `&series_id=${seriesId}` : ""
+  const [events, series, pendingPayout, disputed] = await Promise.all([
     apiGet<EventWithOutcomes[]>(eventsPath),
     apiGet<SeriesRow[]>("/series"),
+    apiGet<EventWithOutcomes[]>(`/events?status=resolved_pending_dispute&limit=12&offset=0${seriesFilter}`).catch(() => []),
+    apiGet<EventWithOutcomes[]>(`/events?status=disputed&limit=12&offset=0${seriesFilter}`).catch(() => []),
   ])
+
+  const recentResults = [...disputed, ...pendingPayout]
 
   const seriesById = new Map(series.map((s) => [s.id, s]))
   const activeSeries = seriesId ? seriesById.get(seriesId) : null
@@ -127,10 +132,7 @@ export default async function HomePage({
                   {markets.length} event{markets.length > 1 ? "s" : ""}
                 </span>
               )}
-            </div>
-            <Link className="text-sm text-muted-foreground hover:underline" href="/markets">
-              See all
-            </Link>
+            </div> 
           </div>
         </FadeIn>
 
@@ -159,7 +161,43 @@ export default async function HomePage({
             ))}
           </div>
         )}
-
+        {recentResults.length > 0 && (
+          <section className="mt-12">
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold">Recent results</h3>
+              <p className="text-xs text-muted-foreground">
+                Check the result before payouts go out — spotted a mistake? Open the event and dispute it.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {recentResults.map((e) => {
+                const winner = (e.outcomes ?? []).find((o) => o.is_winner)
+                const isDisputed = e.status === "disputed"
+                return (
+                  <Link
+                    key={e.id}
+                    href={`/markets/${e.id}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/40 px-4 py-3 transition hover:border-primary/40"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{e.title}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        Result: <span className="font-semibold text-foreground">{winner?.outcome ?? "—"}</span>
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                      isDisputed
+                        ? "border-red-500/40 bg-red-500/10 text-red-400"
+                        : "border-orange-500/40 bg-orange-500/10 text-orange-400"
+                    }`}>
+                      {isDisputed ? "Under review" : "Dispute window open"}
+                    </span>
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
+        )}
       </main>
     </>
   )

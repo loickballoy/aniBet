@@ -1,6 +1,6 @@
 "use client"
 import { ControlPanel } from "@/components/panel/ControlPanel"
 
-export default function AdminPage() {
-  return <ControlPanel mode="admin" />
+export default function ModPage() {
+  return <ControlPanel mode="mod" />
 }

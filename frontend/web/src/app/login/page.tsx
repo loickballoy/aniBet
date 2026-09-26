@@ -184,7 +184,6 @@ function LoginContent() {
         <div className="border-b border-border/50 px-6 pt-6 pb-4">
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold tracking-tight">aniBet</span>
-            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">BETA</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {tab === "login" ? "Happy to see you again 👋" : "Join the community 🎌"}
@@ -342,7 +341,10 @@ function LoginContent() {
       </div>
 
       <p className="mt-4 text-[11px] text-muted-foreground/60">
-        By continuing, you accept the Terms of Service.
+        By continuing, you accept the{" "}
+        <Link href="/terms" className="underline hover:text-foreground">Terms of Service</Link>
+        {" "}and{" "}
+        <Link href="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>
       </p>
     </main>
   )

@@ -98,29 +98,31 @@ def get_proposal_by_id(proposal_id: int) -> EventProposal | None:
             row = cur.fetchone()
     return EventProposal(**row) if row else None
 
-
-def get_pending_proposals_for_mod(user_id: int) -> list[EventProposal]:
-    series_ids = get_mod_scopes_for_user(user_id)
-    if not series_ids:
-        return []
+def get_pending_proposals_for_mod(user_id: int, is_admin: bool = False) -> list[EventProposal]:
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM event_proposals WHERE status = 'pending' AND series_id = ANY(%s)",
-                (series_ids,),
-            )
+            if is_admin:
+                cur.execute("SELECT * FROM event_proposals WHERE status = 'pending' ORDER BY created_at")
+            else:
+                series_ids = get_mod_scopes_for_user(user_id)
+                if not series_ids:
+                    return []
+                cur.execute(
+                    "SELECT * FROM event_proposals WHERE status = 'pending' AND series_id = ANY(%s) ORDER BY created_at",
+                    (series_ids,),
+                )
             rows = cur.fetchall()
     return [EventProposal(**row) for row in rows]
 
 
 def approve_proposal(proposal_id: int, reviewed_by: int, opens_at, locks_at,
-                      fee_bps: int, cover_url: str | None) -> tuple[Event, list[EventOutcome]]:
+                      fee_bps: int, cover_url: str | None, is_admin: bool = False) -> tuple[Event, list[EventOutcome]]:
     proposal = get_proposal_by_id(proposal_id)
     if proposal is None:
         raise ValueError("Proposal not found")
     if proposal.status != "pending":
         raise ValueError("Proposal already reviewed")
-    if not is_mod_for_series(reviewed_by, proposal.series_id):
+    if not is_admin and not is_mod_for_series(reviewed_by, proposal.series_id):
         raise ValueError("Not a mod for this proposal's series")
 
     event, outcomes = bet_utils.create_event(
@@ -292,3 +294,99 @@ def mark_notification_read(notification_id: int) -> None:
         with conn.cursor() as cur:
             cur.execute("UPDATE notifications SET read_at = now() WHERE id = %s", (notification_id,))
         conn.commit()
+
+def list_active_mod_scopes() -> list[dict]:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ms.user_id, u.username, ms.series_id, s.name AS series_name, ms.granted_at
+                FROM mod_scopes ms
+                JOIN "User" u ON u.id = ms.user_id
+                JOIN series s ON s.id = ms.series_id
+                WHERE ms.active = true
+                ORDER BY s.name, u.username
+                """
+            )
+            return cur.fetchall()
+
+
+def get_my_mod_series(user_id: int) -> list[dict]:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT s.id, s.name, s.slug
+                FROM mod_scopes ms JOIN series s ON s.id = ms.series_id
+                WHERE ms.user_id = %s AND ms.active = true
+                ORDER BY s.name
+                """,
+                (user_id,),
+            )
+            return cur.fetchall()
+
+
+def get_open_disputes() -> list[dict]:
+    """Une ligne par event contesté, avec la preuve du mod et la contre-preuve."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.id AS event_id, e.title,
+                       rd.id AS dispute_id, rd.counter_evidence_url, rd.created_at AS disputed_at,
+                       ru.username AS raised_by_username,
+                       (SELECT evidence_url FROM event_resolution_log l
+                        WHERE l.event_id = e.id ORDER BY l.resolved_at DESC LIMIT 1) AS mod_evidence_url,
+                       (SELECT mu.username FROM event_resolution_log l JOIN "User" mu ON mu.id = l.resolved_by
+                        WHERE l.event_id = e.id ORDER BY l.resolved_at DESC LIMIT 1) AS resolved_by_username
+                FROM events e
+                JOIN resolution_disputes rd ON rd.event_id = e.id AND rd.status = 'open'
+                JOIN "User" ru ON ru.id = rd.raised_by
+                WHERE e.status = 'disputed'
+                ORDER BY rd.created_at
+                """
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                cur.execute(
+                    "SELECT id, outcome, is_winner, pool_points FROM event_outcomes WHERE event_id = %s ORDER BY id",
+                    (row["event_id"],),
+                )
+                row["outcomes"] = cur.fetchall()
+    return rows
+
+
+def resolve_dispute(event_id: int, resolved_by: int, decision: str, new_winning_outcome_id: int | None) -> None:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "SELECT fn_resolve_dispute(%s::integer, %s::integer, %s::text, %s::integer)",
+                    (event_id, resolved_by, decision, new_winning_outcome_id),
+                )
+            except Exception as e:
+                conn.rollback()
+                msg = getattr(getattr(e, "diag", None), "message_primary", None) or str(e)
+                raise ValueError(msg) from e
+        conn.commit()
+
+def get_latest_resolution(event_id: int) -> dict | None:
+    """Vue publique de la dernière résolution d'un event (pour la page joueur)."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT l.evidence_url, l.resolved_at, u.username AS resolved_by_username,
+                       eo.outcome AS winning_outcome,
+                       EXISTS (SELECT 1 FROM resolution_disputes d
+                               WHERE d.event_id = l.event_id AND d.status = 'open') AS has_open_dispute
+                FROM event_resolution_log l
+                JOIN "User" u ON u.id = l.resolved_by
+                JOIN event_outcomes eo ON eo.id = l.winning_outcome_id
+                WHERE l.event_id = %s
+                ORDER BY l.resolved_at DESC
+                LIMIT 1
+                """,
+                (event_id,),
+            )
+            return cur.fetchone()

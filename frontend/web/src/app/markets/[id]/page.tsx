@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import BetBox from "@/components/ui/bet/BetBox"
+import ResolutionBox from "@/components/ui/bet/ResolutionBox"
 
 type Outcome = {
   id: number
@@ -287,26 +288,30 @@ export default async function MarketDetailPage(props: { params: any }) {
             style={{ animation: "fadeUp 0.4s ease 0.35s both" }}
           >
             <div className="sticky top-20">
-              <div className="overflow-hidden rounded-2xl border border-primary/20 bg-card/50 backdrop-blur-sm shadow-lg shadow-primary/5">
-                {/* Header */}
-                <div className="border-b border-border/40 bg-primary/5 px-5 py-3.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">Place a bet</span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {outcomes.length} outcome{outcomes.length > 1 ? "s" : ""}
-                    </span>
+              {event.status === "open" ? (
+               <div className="overflow-hidden rounded-2xl border border-primary/20 bg-card/50 backdrop-blur-sm shadow-lg shadow-primary/5">
+                  {/* Header */}
+                  <div className="border-b border-border/40 bg-primary/5 px-5 py-3.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">Place a bet</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {outcomes.length} outcome{outcomes.length > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    {/* Gradient line */}
+                    <div className="mt-3 h-px w-full bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
                   </div>
-                  {/* Gradient line */}
-                  <div className="mt-3 h-px w-full bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
-                </div>
 
-                <div className="p-5">
-                  <BetBox
-                    eventId={event.id}
-                    outcomes={outcomes.map((o) => ({ id: o.id, label: o.outcome }))}
-                  />
+                 <div className="p-5">
+                   <BetBox
+                      eventId={event.id}
+                      outcomes={outcomes.map((o) => ({ id: o.id, label: o.outcome }))}
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <ResolutionBox eventId={event.id} status={event.status} />
+              )}
 
               {/* Disclaimer */}
               <p className="mt-3 text-center text-[11px] text-muted-foreground/50">

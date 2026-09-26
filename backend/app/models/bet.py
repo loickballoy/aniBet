@@ -20,6 +20,7 @@ class PlaceBetRequest(BaseModel):
 
 
 class BetWithDetails(Bet):
+    event_id: Optional[int] = None
     outcome_label: Optional[str] = None
     event_title: Optional[str] = None
     event_status: Optional[str] = None

@@ -133,7 +133,7 @@ export default function SilhouettePage() {
                 </div>
 
                 {lastGuessWrong && (
-                  <p className="mb-2 text-xs text-red-400">Not quite — the image is getting clearer.</p>
+                  <p className="mb-2 text-xs text-red-400">Not quite</p>
                 )}
 
                 <form onSubmit={submitGuess} className="flex gap-2">

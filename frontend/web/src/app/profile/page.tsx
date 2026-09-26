@@ -36,6 +36,7 @@ type BetWithDetails = {
   points_placed: number
   status: string
   outcome_label: string | null
+  event_id : number | null
   event_title: string | null
   event_status: string | null
   potential_payout: number | null
@@ -174,6 +175,7 @@ function UsernameEditor({
 
     setSaving(true)
     setError(null)
+    console.log(`${trimmed} is oway`)
     try {
       const res = await fetch(`${API}/auth/change-username`, {
         method: "PATCH",
@@ -181,7 +183,7 @@ function UsernameEditor({
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ username: trimmed }),
+        body: JSON.stringify({ new_username: trimmed }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.detail ?? `Erreur ${res.status}`)
@@ -370,7 +372,10 @@ export default function ProfilePage() {
                   username={user.username}
                   token={token}
                   API={API}
-                  onSaved={(newUsername) => setUser({ ...user, username: newUsername })}
+                  onSaved={(newUsername) => {
+                    console.log(newUsername);
+                    setUser({ ...user, username: newUsername })
+                  }}
                 />
                 <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${tier.bg} ${tier.color}`}>
                   {tier.name}
@@ -432,10 +437,16 @@ export default function ProfilePage() {
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {bets.slice().reverse().map((bet) => (
-                  <div key={bet.id} className="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/30 p-3">
+                  <Link key={bet.id} href={bet.event_id ? `/markets/${bet.event_id}` : "#"} className="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/30 p-3 transition hover:border-primary/40">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium">{bet.event_title ?? "Unknown Event"}</p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{bet.outcome_label ?? "—"}</p>
+                      {bet.event_status === "resolved_pending_dispute" && (
+                        <p className="mt-1 text-[10px] font-medium text-orange-400">Result in — check it before payout →</p>
+                      )}
+                      {bet.event_status === "disputed" && (
+                        <p className="mt-1 text-[10px] font-medium text-red-400">Result under review</p>
+                      )}
                     </div>
                     <div className="shrink-0 text-right">
                       <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${STATUS_STYLE[bet.status] ?? ""}`}>
@@ -443,7 +454,7 @@ export default function ProfilePage() {
                       </span>
                       <p className="mt-1 text-[11px] text-muted-foreground">{formatPts(bet.points_placed)} pts</p>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}

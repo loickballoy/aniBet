@@ -73,3 +73,7 @@ class ProposeSeriesRequest(BaseModel):
     name: str
     description: Optional[str] = None
     source_url: Optional[str] = None
+
+class ResolveDisputeRequest(BaseModel):
+    decision: str  # "upheld" | "overturned"
+    new_winning_outcome_id: Optional[int] = None

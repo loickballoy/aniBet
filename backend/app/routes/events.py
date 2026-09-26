@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, HTTPException, status
 
 from app.models.event import (
@@ -18,6 +20,7 @@ EventRouter = APIRouter(
     tags=["events"]
 )
 
+DISPUTE_WINDOW=timedelta(hours=30)
 
 @EventRouter.get('/trending', response_model=list[EventWithOutcomes])
 async def get_trending_events():
@@ -45,8 +48,13 @@ async def get_event(event_id: int):
 
 @EventRouter.post("/", response_model=EventWithOutcomes, status_code=status.HTTP_201_CREATED)
 async def create_event(request: CreateEventRequest, current_user: user_dependency):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+    user_id = auth_utils.get_user_id(current_user.username)
+    is_authorized = (
+        current_user.role in ("admin", "owner")
+        or (request.series_id is not None and moderation_utils.is_mod_for_series(user_id, request.series_id))
+    )
+    if not is_authorized:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only, or a mod for this series")
     if len(request.outcomes) < 2:
         raise HTTPException(status_code=400, detail="An event needs at least 2 outcomes")
 
@@ -58,7 +66,7 @@ async def create_event(request: CreateEventRequest, current_user: user_dependenc
         locks_at=request.locks_at,
         fee_bps=request.fee_bps,
         cover_url=request.cover_url,
-        created_by=auth_utils.get_user_id(current_user.username),
+        created_by=user_id,
         outcome_labels=request.outcomes,
         tag_ids=request.tag_ids,
     )
@@ -94,6 +102,15 @@ async def resolve_event(event_id: int, request: ResolveEventRequest, current_use
         raise HTTPException(status_code=409, detail=str(e))
 
     return {"message": "Event resolved, dispute window open"}
+
+@EventRouter.get("/{event_id}/resolution")
+async def get_resolution(event_id: int):
+    """Public : qui a résolu, avec quelle preuve, et quand la fenêtre de dispute se ferme."""
+    res = moderation_utils.get_latest_resolution(event_id)
+    if not res:
+        return None
+    resolved_at = res["resolved_at"] if res["resolved_at"].tzinfo else res["resolved_at"].replace(tzinfo=UTC)
+    return {**res, "dispute_window_ends_at": (resolved_at + DISPUTE_WINDOW).isoformat()}
 
 @EventRouter.post("/{event_id}/dispute", status_code=status.HTTP_201_CREATED)
 async def dispute_event(event_id: int, request: RaiseDisputeRequest, current_user: user_dependency):

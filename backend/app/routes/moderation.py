@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.models.moderation import (
     EventProposal, ProposeEventRequest, ApproveProposalRequest,
-    GrantModScopeRequest, Notification, ProposeSeriesRequest
+    GrantModScopeRequest, Notification, ProposeSeriesRequest,
+    ResolveDisputeRequest
 )
 from app.models.event import EventWithOutcomes
 from app.utils import auth_utils
@@ -35,7 +36,7 @@ async def propose_event(request: ProposeEventRequest, current_user: user_depende
 @ModerationRouter.get("/events/proposals/pending", response_model=list[EventProposal])
 async def list_pending_proposals(current_user: user_dependency):
     """Scopé automatiquement aux séries où l'utilisateur est mod — pas de paramètre à passer."""
-    return moderation_utils.get_pending_proposals_for_mod(auth_utils.get_user_id(current_user.username))
+    return moderation_utils.get_pending_proposals_for_mod(auth_utils.get_user_id(current_user.username), is_admin=current_user.role in ("admin", "owner"))
 
 
 @ModerationRouter.post("/events/proposals/{proposal_id}/approve", response_model=EventWithOutcomes, status_code=status.HTTP_201_CREATED)
@@ -44,6 +45,7 @@ async def approve_proposal(proposal_id: int, request: ApproveProposalRequest, cu
         event, outcomes = moderation_utils.approve_proposal(
             proposal_id, auth_utils.get_user_id(current_user.username),
             request.opens_at, request.locks_at, request.fee_bps, request.cover_url,
+            is_admin=current_user.role in ("admin", "owner")
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -55,7 +57,8 @@ async def reject_proposal(proposal_id: int, current_user: user_dependency):
     proposal = moderation_utils.get_proposal_by_id(proposal_id)
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found")
-    if not moderation_utils.is_mod_for_series(auth_utils.get_user_id(current_user.username), proposal.series_id):
+    is_admin = current_user.role in ("admin", "role")
+    if not is_admin and not moderation_utils.is_mod_for_series(auth_utils.get_user_id(current_user.username), proposal.series_id):
         raise HTTPException(status_code=403, detail="Not a mod for this proposal's series")
 
     moderation_utils.reject_proposal(proposal_id, auth_utils.get_user_id(current_user.username))
@@ -99,7 +102,7 @@ async def reject_series_proposal(proposal_id: int, current_user: user_dependency
 
 # ---------------------------------------------------------------------------
 # Gestion des mod scopes — admin uniquement
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 
 @ModerationRouter.get("/admin/users/search")
 async def search_users(current_user: user_dependency, q: str = ""):
@@ -143,3 +146,37 @@ async def get_my_notifications(current_user: user_dependency, unread_only: bool 
 async def mark_notification_read(notification_id: int, current_user: user_dependency):
     moderation_utils.mark_notification_read(notification_id)
     return {"message": "Marked as read"}
+
+@ModerationRouter.get("/admin/mod-scopes")
+async def list_mod_scopes(current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return moderation_utils.list_active_mod_scopes()
+
+
+@ModerationRouter.get("/mod/scopes/me")
+async def my_mod_series(current_user: user_dependency):
+    return moderation_utils.get_my_mod_series(auth_utils.get_user_id(current_user.username))
+
+
+@ModerationRouter.get("/admin/disputes")
+async def list_disputes(current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return moderation_utils.get_open_disputes()
+
+
+@ModerationRouter.post("/admin/disputes/{event_id}/resolve", status_code=status.HTTP_200_OK)
+async def resolve_dispute(event_id: int, request: ResolveDisputeRequest, current_user: user_dependency):
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if request.decision == "overturned" and request.new_winning_outcome_id is None:
+        raise HTTPException(status_code=400, detail="Pick the new winning outcome")
+    try:
+        moderation_utils.resolve_dispute(
+            event_id, auth_utils.get_user_id(current_user.username),
+            request.decision, request.new_winning_outcome_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"message": "Dispute resolved, payout finalized"}

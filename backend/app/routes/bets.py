@@ -54,6 +54,7 @@ async def get_my_bets(current_user: user_dependency):
         result.append(BetWithDetails(
             **bet.model_dump(),
             outcome_label=outcome.outcome if outcome else None,
+            event_id=event.id,
             event_title=event.title,
             event_status=event.status,
             potential_payout=potential
