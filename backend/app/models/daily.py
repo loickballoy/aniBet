@@ -27,6 +27,12 @@ class SilhouetteGuessRequest(BaseModel):
     guess: str
 
 
+class SilhouetteGuestGuessRequest(BaseModel):
+    guess: str
+    # Dernier essai de l'invité : on révèle la réponse même s'il se trompe.
+    final: bool = False
+
+
 class DailyAttemptResult(BaseModel):
     result: str  # "solved" | "failed" | None si silhouette pas encore conclue
     score: Optional[int] = None

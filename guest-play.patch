@@ -1,0 +1,815 @@
+diff --git a/backend/app/models/daily.py b/backend/app/models/daily.py
+index 9160c33..8967046 100644
+--- a/backend/app/models/daily.py
++++ b/backend/app/models/daily.py
+@@ -27,6 +27,12 @@ class SilhouetteGuessRequest(BaseModel):
+     guess: str
+ 
+ 
++class SilhouetteGuestGuessRequest(BaseModel):
++    guess: str
++    # Dernier essai de l'invité : on révèle la réponse même s'il se trompe.
++    final: bool = False
++
++
+ class DailyAttemptResult(BaseModel):
+     result: str  # "solved" | "failed" | None si silhouette pas encore conclue
+     score: Optional[int] = None
+diff --git a/backend/app/routes/daily.py b/backend/app/routes/daily.py
+index 20954b2..a35d2c5 100644
+--- a/backend/app/routes/daily.py
++++ b/backend/app/routes/daily.py
+@@ -3,23 +3,27 @@ from fastapi import APIRouter, HTTPException, status
+ 
+ from app.models.daily import (
+     DailyChallenge, CreateDailyChallengeRequest,
+-    TriviaSubmitRequest, SilhouetteGuessRequest, Streak,
++    TriviaSubmitRequest, SilhouetteGuessRequest, SilhouetteGuestGuessRequest, Streak,
+ )
+ from app.utils import auth_utils
+ from app.utils import daily_utils
+ 
+ user_dependency = auth_utils.user_dependency
++optional_user_dependency = auth_utils.optional_user_dependency
+ 
+ DailyRouter = APIRouter(tags=["daily"])
+ 
+ 
+ @DailyRouter.get("/daily-challenges/today")
+-async def get_todays_challenge(current_user: user_dependency):
++async def get_todays_challenge(current_user: optional_user_dependency):
+     today = date_type.today()
+     challenge = daily_utils.get_challenge_for_date(today)
+     if not challenge:
+         raise HTTPException(status_code=404, detail="No challenge scheduled for today")
+ 
++    if current_user is None:  # invité : sa progression vit dans son navigateur
++        return {"challenge": challenge, "attempt": None, "revealed_answer": None}
++
+     user_id = auth_utils.get_user_id(current_user.username)
+     attempt = daily_utils.get_existing_attempt(user_id, challenge.id)
+ 
+@@ -97,4 +101,29 @@ async def delete_daily_challenge(challenge_id: int, current_user: user_dependenc
+         daily_utils.delete_challenge(challenge_id)
+     except ValueError as e:
+         raise HTTPException(status_code=409, detail=str(e))
+-    return {"message": "Deleted"}
+\ No newline at end of file
++    return {"message": "Deleted"}
++
++
++# ---------------------------------------------------------------------------
++# Jeu en invité : même partie, rien n'est enregistré, aucune récompense.
++# ---------------------------------------------------------------------------
++
++@DailyRouter.post("/daily-challenges/today/trivia/guest", status_code=status.HTTP_200_OK)
++async def submit_trivia_guest(request: TriviaSubmitRequest):
++    challenge = daily_utils.get_challenge_for_date(date_type.today())
++    if not challenge or challenge.type != "trivia":
++        raise HTTPException(status_code=400, detail="No trivia challenge today")
++    try:
++        graded = daily_utils.grade_trivia(challenge, request.answers)
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++    return {"result": "solved" if graded["solved"] else "failed", **graded}
++
++
++@DailyRouter.post("/daily-challenges/today/silhouette/guest", status_code=status.HTTP_200_OK)
++async def guess_silhouette_guest(request: SilhouetteGuestGuessRequest):
++    challenge = daily_utils.get_challenge_for_date(date_type.today())
++    if not challenge or challenge.type != "silhouette":
++        raise HTTPException(status_code=400, detail="No silhouette challenge today")
++    correct, answer = daily_utils.check_silhouette_guess(challenge.id, request.guess)
++    return {"guess_correct": correct, "answer": answer if (correct or request.final) else None}
+diff --git a/backend/app/routes/weekly.py b/backend/app/routes/weekly.py
+index 84926dc..b73c00a 100644
+--- a/backend/app/routes/weekly.py
++++ b/backend/app/routes/weekly.py
+@@ -5,17 +5,21 @@ from app.utils import auth_utils
+ from app.utils import weekly_utils
+ 
+ user_dependency = auth_utils.user_dependency
++optional_user_dependency = auth_utils.optional_user_dependency
+ 
+ WeeklyRouter = APIRouter(tags=["weekly"])
+ 
+ 
+ @WeeklyRouter.get("/weekly-connections/current")
+-async def get_current_puzzle(current_user: user_dependency):
++async def get_current_puzzle(current_user: optional_user_dependency):
+     week_of = weekly_utils.get_current_week_start()
+     puzzle = weekly_utils.get_puzzle_for_week(week_of)
+     if not puzzle:
+         raise HTTPException(status_code=404, detail="No AniConnections puzzle scheduled for this week")
+ 
++    if current_user is None:  # invité : sa progression vit dans son navigateur
++        return {"puzzle": puzzle, "attempt": None, "revealed_categories": None, "found_groups": []}
++
+     user_id = auth_utils.get_user_id(current_user.username)
+     attempt = weekly_utils.get_existing_attempt(user_id, puzzle.id)
+ 
+@@ -23,7 +27,11 @@ async def get_current_puzzle(current_user: user_dependency):
+     if attempt and attempt.get("solved") is not None:
+         revealed_categories = weekly_utils._get_categories_for_puzzle(puzzle.id)
+ 
+-    return {"puzzle": puzzle, "attempt": attempt, "revealed_categories": revealed_categories}
++    # Groupes déjà trouvés : sans eux, la page ne peut pas retirer leurs
++    # personnages de la grille ni afficher leurs noms pendant la partie.
++    found = weekly_utils.found_groups(puzzle.id, attempt["found_categories"]) if attempt else []
++
++    return {"puzzle": puzzle, "attempt": attempt, "revealed_categories": revealed_categories, "found_groups": found}
+ 
+ 
+ @WeeklyRouter.post("/weekly-connections/current/guess", status_code=status.HTTP_200_OK)
+@@ -69,4 +77,31 @@ async def delete_weekly_puzzle(puzzle_id: int, current_user: user_dependency):
+         weekly_utils.delete_puzzle(puzzle_id)
+     except ValueError as e:
+         raise HTTPException(status_code=409, detail=str(e))
+-    return {"message": "Deleted"}
+\ No newline at end of file
++    return {"message": "Deleted"}
++
++
++# ---------------------------------------------------------------------------
++# Jeu en invité : même partie, rien n'est enregistré, aucune récompense.
++# ---------------------------------------------------------------------------
++
++@WeeklyRouter.post("/weekly-connections/current/guest-guess", status_code=status.HTTP_200_OK)
++async def submit_guess_guest(request: WeeklyGuessRequest):
++    puzzle = weekly_utils.get_puzzle_for_week(weekly_utils.get_current_week_start())
++    if not puzzle:
++        raise HTTPException(status_code=404, detail="No AniConnections puzzle scheduled for this week")
++    try:
++        label = weekly_utils.match_guess(puzzle.id, request.character_ids)
++    except ValueError as e:
++        raise HTTPException(status_code=400, detail=str(e))
++    return {"guess_correct": label is not None, "matched_category": label}
++
++
++@WeeklyRouter.get("/weekly-connections/current/guest-reveal")
++async def reveal_guest():
++    """Toutes les catégories, appelé par le navigateur de l'invité à la fin de
++    sa partie. Pas de contrôle possible côté serveur (rien n'est enregistré) :
++    accepté, un invité ne gagne rien."""
++    puzzle = weekly_utils.get_puzzle_for_week(weekly_utils.get_current_week_start())
++    if not puzzle:
++        raise HTTPException(status_code=404, detail="No AniConnections puzzle scheduled for this week")
++    return weekly_utils._get_categories_for_puzzle(puzzle.id)
+diff --git a/backend/app/utils/auth_utils.py b/backend/app/utils/auth_utils.py
+index 666a828..622acd6 100644
+--- a/backend/app/utils/auth_utils.py
++++ b/backend/app/utils/auth_utils.py
+@@ -17,6 +17,8 @@ ALGORITHM = "HS256"
+ 
+ 
+ oauth_bearer = OAuth2PasswordBearer(tokenUrl="auth/token")
++# Variante qui ne renvoie pas 401 sans token : pour les routes jouables en invité.
++oauth_bearer_optional = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
+ 
+ # Oauth Google
+ 
+@@ -320,4 +322,19 @@ def update_avatar(avatar_url, email: str) -> None:
+             )
+         conn.commit()
+ 
+-user_dependency = Annotated[dict, Depends(get_current_user)]
+\ No newline at end of file
++user_dependency = Annotated[dict, Depends(get_current_user)]
++
++
++def get_optional_user(token: Annotated[str | None, Depends(oauth_bearer_optional)]):
++    """Utilisateur connecté, ou None pour un invité. Un token absent, invalide
++    ou expiré donne un invité plutôt qu'une erreur : on ne bloque jamais
++    l'accès aux jeux."""
++    if not token:
++        return None
++    try:
++        return get_current_user(token)
++    except HTTPException:
++        return None
++
++
++optional_user_dependency = Annotated[object | None, Depends(get_optional_user)]
+\ No newline at end of file
+diff --git a/backend/app/utils/daily_utils.py b/backend/app/utils/daily_utils.py
+index 4d27ff9..c12f57e 100644
+--- a/backend/app/utils/daily_utils.py
++++ b/backend/app/utils/daily_utils.py
+@@ -72,16 +72,14 @@ def get_existing_attempt(user_id: int, challenge_id: int) -> dict | None:
+             return cur.fetchone()
+ 
+ 
+-def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, answers: list[int]) -> dict:
+-    answer = _get_answer_for_challenge(challenge_id)
+-    correct_indices = answer["correct_indices"]
+-
++def grade_trivia(challenge: DailyChallenge, answers: list[int]) -> dict:
++    """Corrige une trivia SANS rien enregistrer (utilisé par les joueurs
++    connectés ET les invités)."""
++    correct_indices = _get_answer_for_challenge(challenge.id)["correct_indices"]
+     if len(answers) != len(correct_indices):
+         raise ValueError(f"Expected {len(correct_indices)} answers, got {len(answers)}")
+ 
+-    challenge = get_challenge_for_date(challenge_date)
+     weights = [q["difficulty_weight"] for q in challenge.content["questions"]]
+-
+     correct_count = 0
+     score = 0
+     for given, correct, weight in zip(answers, correct_indices, weights):
+@@ -89,7 +87,23 @@ def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, an
+             correct_count += 1
+             score += weight
+ 
+-    solved = correct_count >= TRIVIA_PASS_THRESHOLD
++    return {
++        "score": score,
++        "correct_count": correct_count,
++        "solved": correct_count >= TRIVIA_PASS_THRESHOLD,
++        "correct_indices": correct_indices,
++    }
++
++
++def check_silhouette_guess(challenge_id: int, guess: str) -> tuple[bool, dict]:
++    """(bonne réponse ?, réponse complète) — sans rien enregistrer."""
++    answer = _get_answer_for_challenge(challenge_id)
++    return guess.strip().lower() == answer["character_name"].strip().lower(), answer
++
++
++def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, answers: list[int]) -> dict:
++    graded = grade_trivia(get_challenge_for_date(challenge_date), answers)
++    score, correct_count, solved = graded["score"], graded["correct_count"], graded["solved"]
+     reward = TRIVIA_REWARD if solved else 0
+ 
+     with pool.connection() as conn:
+diff --git a/backend/app/utils/weekly_utils.py b/backend/app/utils/weekly_utils.py
+index 000dd83..3ae4df9 100644
+--- a/backend/app/utils/weekly_utils.py
++++ b/backend/app/utils/weekly_utils.py
+@@ -79,6 +79,25 @@ def delete_puzzle(puzzle_id: int) -> None:
+         conn.commit()
+ 
+ 
++def match_guess(puzzle_id: int, character_ids: list[int]) -> str | None:
++    """Label de la catégorie correspondant exactement au groupe, sinon None.
++    Sans rien enregistrer (jeu en invité)."""
++    if len(character_ids) != 4:
++        raise ValueError("A guess must contain exactly 4 character ids")
++    guess = set(character_ids)
++    for cat in _get_categories_for_puzzle(puzzle_id):
++        if set(cat["character_ids"]) == guess:
++            return cat["label"]
++    return None
++
++
++def found_groups(puzzle_id: int, found_labels: list[str]) -> list[dict]:
++    """Catégories déjà trouvées, dans l'ordre où le joueur les a trouvées.
++    Aucune fuite : le joueur les connaît déjà."""
++    by_label = {c["label"]: c for c in _get_categories_for_puzzle(puzzle_id)}
++    return [by_label[label] for label in found_labels if label in by_label]
++
++
+ def get_existing_attempt(user_id: int, puzzle_id: int) -> dict | None:
+     with pool.connection() as conn:
+         with conn.cursor() as cur:
+diff --git a/backend/tests/test_13_guest_play.py b/backend/tests/test_13_guest_play.py
+new file mode 100644
+index 0000000..3d153c7
+--- /dev/null
++++ b/backend/tests/test_13_guest_play.py
+@@ -0,0 +1,113 @@
++"""
++Jeu en invité : on joue sans compte, rien n'est enregistré, aucune
++récompense. Et correctif AniConnections : les groupes déjà trouvés sont
++renvoyés pendant la partie (sinon la grille ne peut pas les retirer).
++"""
++import os
++from datetime import date
++
++import psycopg
++import pytest
++from psycopg.rows import dict_row
++
++
++def _db():
++    return psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row, autocommit=True)
++
++
++def _reset_today(client, admin_headers, type_, content, answer):
++    with _db() as conn:
++        conn.execute("DELETE FROM daily_attempts")
++        conn.execute("DELETE FROM daily_challenges")
++    resp = client.post("/admin/daily-challenges", json={
++        "challenge_date": date.today().isoformat(), "type": type_, "content": content, "answer": answer,
++    }, headers=admin_headers)
++    assert resp.status_code == 201
++
++
++def _attempt_count():
++    with _db() as conn:
++        return conn.execute("SELECT COUNT(*) AS n FROM daily_attempts").fetchone()["n"]
++
++
++# ── Daily ────────────────────────────────────────────────────────────────────
++
++@pytest.mark.order(130)
++def test_guest_can_load_todays_challenge_without_token(client, admin_headers):
++    _reset_today(client, admin_headers, "trivia",
++                 {"questions": [{"question": f"Q{i}", "options": ["a", "b"], "difficulty_weight": 1, "series": "S"} for i in range(5)]},
++                 {"correct_indices": [0, 0, 0, 0, 0]})
++    resp = client.get("/daily-challenges/today")
++    assert resp.status_code == 200
++    body = resp.json()
++    assert body["attempt"] is None and body["revealed_answer"] is None
++    assert "answer" not in body["challenge"]
++
++
++@pytest.mark.order(131)
++def test_invalid_token_is_treated_as_guest(client):
++    resp = client.get("/daily-challenges/today", headers={"Authorization": "Bearer not-a-real-token"})
++    assert resp.status_code == 200
++    assert resp.json()["attempt"] is None
++
++
++@pytest.mark.order(132)
++def test_guest_trivia_is_graded_but_never_saved(client):
++    before = _attempt_count()
++    resp = client.post("/daily-challenges/today/trivia/guest", json={"answers": [0, 0, 0, 1, 1]})
++    assert resp.status_code == 200
++    body = resp.json()
++    assert body["result"] == "solved" and body["correct_count"] == 3
++    assert body["correct_indices"] == [0, 0, 0, 0, 0]
++    assert _attempt_count() == before  # rien d'enregistré pour un invité
++
++
++@pytest.mark.order(133)
++def test_guest_silhouette_reveals_only_when_finished(client, admin_headers):
++    _reset_today(client, admin_headers, "silhouette",
++                 {"image_url": "https://x/blur.png", "hints": []},
++                 {"character_name": "Luffy", "series": "One Piece"})
++    wrong = client.post("/daily-challenges/today/silhouette/guest", json={"guess": "Zoro"}).json()
++    assert wrong == {"guess_correct": False, "answer": None}
++    last_wrong = client.post("/daily-challenges/today/silhouette/guest", json={"guess": "Zoro", "final": True}).json()
++    assert last_wrong["answer"]["character_name"] == "Luffy"
++    right = client.post("/daily-challenges/today/silhouette/guest", json={"guess": " luffy "}).json()
++    assert right["guess_correct"] is True
++    assert _attempt_count() == 0
++
++
++@pytest.mark.order(134)
++def test_guest_endpoint_refuses_wrong_game_type(client):
++    # Aujourd'hui c'est une silhouette : la trivia invité doit refuser.
++    assert client.post("/daily-challenges/today/trivia/guest", json={"answers": [0]}).status_code == 400
++
++
++# ── Weekly ───────────────────────────────────────────────────────────────────
++
++@pytest.mark.order(135)
++def test_guest_can_load_weekly_without_token(client):
++    resp = client.get("/weekly-connections/current")
++    assert resp.status_code == 200
++    body = resp.json()
++    assert body["attempt"] is None and body["found_groups"] == []
++    assert "categories" not in body["puzzle"]
++
++
++@pytest.mark.order(136)
++def test_guest_weekly_guess_and_reveal(client):
++    # Puzzle créé par test_10 : "Capitaines" = personnages 0 à 3.
++    right = client.post("/weekly-connections/current/guest-guess", json={"character_ids": [0, 1, 2, 3]}).json()
++    assert right == {"guess_correct": True, "matched_category": "Capitaines"}
++    wrong = client.post("/weekly-connections/current/guest-guess", json={"character_ids": [0, 4, 8, 12]}).json()
++    assert wrong["guess_correct"] is False
++    assert len(client.get("/weekly-connections/current/guest-reveal").json()) == 4
++
++
++@pytest.mark.order(137)
++def test_logged_in_player_gets_found_groups_during_play(client, second_bettor_headers):
++    # Correctif : pendant la partie, les groupes trouvés arrivent avec leurs
++    # personnages, pour que la grille puisse les retirer et afficher les noms.
++    client.post("/weekly-connections/current/guess", json={"character_ids": [0, 1, 2, 3]}, headers=second_bettor_headers)
++    body = client.get("/weekly-connections/current", headers=second_bettor_headers).json()
++    assert body["revealed_categories"] is None  # partie pas finie : pas de fuite
++    assert body["found_groups"] == [{"label": "Capitaines", "character_ids": [0, 1, 2, 3]}]
+diff --git a/frontend/web/src/app/daily/page.tsx b/frontend/web/src/app/daily/page.tsx
+index 79b6be6..c6f9ce2 100644
+--- a/frontend/web/src/app/daily/page.tsx
++++ b/frontend/web/src/app/daily/page.tsx
+@@ -12,9 +12,7 @@ export default function DailyRouterPage() {
+ 
+   React.useEffect(() => {
+     const token = localStorage.getItem("access_token")
+-    if (!token) { router.replace("/login"); return }
+-
+-    fetch(`${API}/daily-challenges/today`, { headers: { Authorization: `Bearer ${token}` } })
++    fetch(`${API}/daily-challenges/today`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+       .then(async (res) => {
+         if (!res.ok) { router.replace("/daily/trivia"); return }
+         const data = await res.json()
+diff --git a/frontend/web/src/app/daily/silhouette/page.tsx b/frontend/web/src/app/daily/silhouette/page.tsx
+index 5d732f3..d0597f6 100644
+--- a/frontend/web/src/app/daily/silhouette/page.tsx
++++ b/frontend/web/src/app/daily/silhouette/page.tsx
+@@ -1,9 +1,10 @@
+ "use client"
+ 
+ import * as React from "react"
+-import { useRouter } from "next/navigation"
+ import Link from "next/link"
+ import { SiteHeader } from "@/components/ui/layout/SiteHeader"
++import { GuestCta } from "@/components/ui/GuestCta"
++import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
+ 
+ type Challenge = {
+   id: number
+@@ -23,8 +24,8 @@ const MAX_GUESSES = 3
+ const BLUR_STEPS = [24, 14, 6]
+ 
+ export default function SilhouettePage() {
+-  const router = useRouter()
+   const [token, setToken] = React.useState("")
++  const [isGuest, setIsGuest] = React.useState(false)
+   const [loading, setLoading] = React.useState(true)
+   const [challenge, setChallenge] = React.useState<Challenge | null>(null)
+   const [attempt, setAttempt] = React.useState<Attempt>(null)
+@@ -36,19 +37,24 @@ export default function SilhouettePage() {
+ 
+   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
+ 
+-  async function load(t: string) {
+-    const res = await fetch(`${API}/daily-challenges/today`, { headers: { Authorization: `Bearer ${t}` } })
++  async function load(t: string | null) {
++    const res = await fetch(`${API}/daily-challenges/today`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
+     if (res.status === 404) { setChallenge(null); return }
+     const data = await res.json()
+     setChallenge(data.challenge)
+     setAttempt(data.attempt)
+     setRevealedAnswer(data.revealed_answer)
++    if (!t && data.challenge?.type === "silhouette") {
++      const saved = loadGuestProgress<{ attempt: Attempt; revealed: { character_name: string; series: string } | null }>("silhouette", data.challenge.id)
++      if (saved) { setAttempt(saved.attempt); setRevealedAnswer(saved.revealed) }
++    }
+   }
+ 
+   React.useEffect(() => {
+     const t = localStorage.getItem("access_token")
+-    if (!t) { router.replace("/login"); return }
+-    setToken(t)
++    // Sans token : on joue en invité au lieu de renvoyer vers la connexion.
++    setToken(t ?? "")
++    setIsGuest(!t)
+     load(t).finally(() => setLoading(false))
+   }, [])
+ 
+@@ -64,6 +70,27 @@ export default function SilhouettePage() {
+     setError(null)
+     setLastGuessWrong(false)
+     try {
++      if (isGuest && challenge) {
++        const previous = attempt?.guesses ?? []
++        const final = previous.length + 1 >= MAX_GUESSES
++        const res = await fetch(`${API}/daily-challenges/today/silhouette/guest`, {
++          method: "POST",
++          headers: { "Content-Type": "application/json" },
++          body: JSON.stringify({ guess: guess.trim(), final }),
++        })
++        if (!res.ok) throw new Error((await res.json())?.detail ?? "Something went wrong")
++        const data = await res.json()
++        if (!data.guess_correct) setLastGuessWrong(true)
++        const next: Attempt = {
++          guesses: [...previous, guess.trim()],
++          result: data.guess_correct ? "solved" : final ? "failed" : null,
++        }
++        setAttempt(next)
++        if (data.answer) setRevealedAnswer(data.answer)
++        saveGuestProgress("silhouette", challenge.id, { attempt: next, revealed: data.answer ?? null })
++        setGuess("")
++        return
++      }
+       const res = await fetch(`${API}/daily-challenges/today/silhouette/guess`, {
+         method: "POST",
+         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+@@ -109,6 +136,7 @@ export default function SilhouettePage() {
+           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back</Link>
+         </div>
+ 
++        {isGuest && !concluded && <GuestCta variant="banner" />}
+         <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60">
+           <div className="relative aspect-square w-full overflow-hidden bg-background/40">
+             {/* eslint-disable-next-line @next/next/no-img-element */}
+@@ -168,6 +196,7 @@ export default function SilhouettePage() {
+                     {revealedAnswer.series && <> — {revealedAnswer.series}</>}
+                   </p>
+                 )}
++                {isGuest && <GuestCta variant="after" />}
+                 <Link href="/" className="mt-4 inline-block text-sm text-primary hover:underline">
+                   Back home
+                 </Link>
+diff --git a/frontend/web/src/app/daily/trivia/page.tsx b/frontend/web/src/app/daily/trivia/page.tsx
+index 50095d9..53efc46 100644
+--- a/frontend/web/src/app/daily/trivia/page.tsx
++++ b/frontend/web/src/app/daily/trivia/page.tsx
+@@ -1,9 +1,10 @@
+ "use client"
+ 
+ import * as React from "react"
+-import { useRouter } from "next/navigation"
+ import Link from "next/link"
+ import { SiteHeader } from "@/components/ui/layout/SiteHeader"
++import { GuestCta } from "@/components/ui/GuestCta"
++import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
+ 
+ type Question = {
+   question: string
+@@ -26,8 +27,8 @@ type Attempt = {
+ } | null
+ 
+ export default function TriviaPage() {
+-  const router = useRouter()
+   const [token, setToken] = React.useState("")
++  const [isGuest, setIsGuest] = React.useState(false)
+   const [loading, setLoading] = React.useState(true)
+   const [challenge, setChallenge] = React.useState<Challenge | null>(null)
+   const [attempt, setAttempt] = React.useState<Attempt>(null)
+@@ -38,8 +39,8 @@ export default function TriviaPage() {
+ 
+   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
+ 
+-  async function load(t: string) {
+-    const res = await fetch(`${API}/daily-challenges/today`, { headers: { Authorization: `Bearer ${t}` } })
++  async function load(t: string | null) {
++    const res = await fetch(`${API}/daily-challenges/today`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
+     if (res.status === 404) { setChallenge(null); return }
+     const data = await res.json()
+     setChallenge(data.challenge)
+@@ -47,13 +48,18 @@ export default function TriviaPage() {
+     setRevealedAnswer(data.revealed_answer)
+     if (data.challenge?.type === "trivia") {
+       setAnswers(Array(data.challenge.content.questions.length).fill(null))
++      if (!t) {
++        const saved = loadGuestProgress<{ attempt: Attempt; revealed: { correct_indices: number[] } }>("trivia", data.challenge.id)
++        if (saved) { setAttempt(saved.attempt); setRevealedAnswer(saved.revealed) }
++      }
+     }
+   }
+ 
+   React.useEffect(() => {
+     const t = localStorage.getItem("access_token")
+-    if (!t) { router.replace("/login"); return }
+-    setToken(t)
++    // Sans token : on joue en invité au lieu de renvoyer vers la connexion.
++    setToken(t ?? "")
++    setIsGuest(!t)
+     load(t).finally(() => setLoading(false))
+   }, [])
+ 
+@@ -63,6 +69,21 @@ export default function TriviaPage() {
+     setSubmitting(true)
+     setError(null)
+     try {
++      if (isGuest && challenge) {
++        const res = await fetch(`${API}/daily-challenges/today/trivia/guest`, {
++          method: "POST",
++          headers: { "Content-Type": "application/json" },
++          body: JSON.stringify({ answers }),
++        })
++        if (!res.ok) throw new Error((await res.json())?.detail ?? "Something went wrong")
++        const data = await res.json()
++        const guestAttempt = { guesses: answers as number[], score: data.score, result: data.result }
++        const revealed = { correct_indices: data.correct_indices }
++        setAttempt(guestAttempt)
++        setRevealedAnswer(revealed)
++        saveGuestProgress("trivia", challenge.id, { attempt: guestAttempt, revealed })
++        return
++      }
+       const res = await fetch(`${API}/daily-challenges/today/trivia`, {
+         method: "POST",
+         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+@@ -107,6 +128,7 @@ export default function TriviaPage() {
+           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back</Link>
+         </div>
+ 
++        {isGuest && !concluded && <GuestCta variant="banner" />}
+         {concluded && (
+           <div className={`mb-5 rounded-2xl border p-4 text-center ${
+             attempt!.result === "solved" ? "border-emerald-500/30 bg-emerald-500/10" : "border-red-500/30 bg-red-500/10"
+@@ -170,6 +192,7 @@ export default function TriviaPage() {
+         )}
+         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+ 
++        {concluded && isGuest && <GuestCta variant="after" />}
+         {concluded && (
+           <Link href="/" className="mt-5 block text-center text-sm text-primary hover:underline">
+             Back home
+diff --git a/frontend/web/src/app/weekly/page.tsx b/frontend/web/src/app/weekly/page.tsx
+index 867be65..81a5a54 100644
+--- a/frontend/web/src/app/weekly/page.tsx
++++ b/frontend/web/src/app/weekly/page.tsx
+@@ -1,9 +1,10 @@
+ "use client"
+ 
+ import * as React from "react"
+-import { useRouter } from "next/navigation"
+ import Link from "next/link"
+ import { SiteHeader } from "@/components/ui/layout/SiteHeader"
++import { GuestCta } from "@/components/ui/GuestCta"
++import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
+ 
+ type Character = { id: number; name: string; image_url: string }
+ type Puzzle = { id: number; week_of: string; grid: Character[] }
+@@ -13,6 +14,7 @@ type Attempt = {
+   solved: boolean | null
+ } | null
+ type RevealedCategory = { label: string; character_ids: number[] }
++type GuestWeekly = { mistakes: number; found: RevealedCategory[]; solved: boolean | null; revealed: RevealedCategory[] | null }
+ 
+ const MAX_MISTAKES = 5 // doit rester synchro avec weekly_utils.py côté backend
+ 
+@@ -24,8 +26,11 @@ const CATEGORY_COLORS = [
+ ]
+ 
+ export default function AniConnectionsPage() {
+-  const router = useRouter()
+   const [token, setToken] = React.useState("")
++  const [isGuest, setIsGuest] = React.useState(false)
++  // Groupes déjà trouvés, avec leurs personnages : indispensable pour les
++  // retirer de la grille et afficher leurs noms PENDANT la partie.
++  const [foundGroups, setFoundGroups] = React.useState<RevealedCategory[]>([])
+   const [loading, setLoading] = React.useState(true)
+   const [puzzle, setPuzzle] = React.useState<Puzzle | null>(null)
+   const [attempt, setAttempt] = React.useState<Attempt>(null)
+@@ -37,19 +42,28 @@ export default function AniConnectionsPage() {
+ 
+   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
+ 
+-  async function load(t: string) {
+-    const res = await fetch(`${API}/weekly-connections/current`, { headers: { Authorization: `Bearer ${t}` } })
++  async function load(t: string | null) {
++    const res = await fetch(`${API}/weekly-connections/current`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
+     if (res.status === 404) { setPuzzle(null); return }
+     const data = await res.json()
+     setPuzzle(data.puzzle)
+-    setAttempt(data.attempt)
+-    setRevealedCategories(data.revealed_categories)
++    if (t) {
++      setAttempt(data.attempt)
++      setRevealedCategories(data.revealed_categories)
++      setFoundGroups(data.found_groups ?? [])
++      return
++    }
++    const saved = loadGuestProgress<GuestWeekly>("weekly", data.puzzle.id)
++    setAttempt(saved ? { mistakes: saved.mistakes, found_categories: saved.found.map((f) => f.label), solved: saved.solved } : null)
++    setFoundGroups(saved?.found ?? [])
++    setRevealedCategories(saved?.revealed ?? null)
+   }
+ 
+   React.useEffect(() => {
+     const t = localStorage.getItem("access_token")
+-    if (!t) { router.replace("/login"); return }
+-    setToken(t)
++    // Sans token : on joue en invité au lieu de renvoyer vers la connexion.
++    setToken(t ?? "")
++    setIsGuest(!t)
+     load(t).finally(() => setLoading(false))
+   }, [])
+ 
+@@ -58,14 +72,10 @@ export default function AniConnectionsPage() {
+ 
+   // Personnages restant à trouver : tout le grid moins ceux déjà dans une
+   // catégorie trouvée. Une fois conclu, on n'affiche plus la grille libre.
+-  const foundCharacterIds = React.useMemo(() => {
+-    if (!revealedCategories) return new Set<number>()
+-    return new Set(
+-      revealedCategories
+-        .filter((c) => foundLabels.includes(c.label))
+-        .flatMap((c) => c.character_ids)
+-    )
+-  }, [revealedCategories, foundLabels])
++  const foundCharacterIds = React.useMemo(
++    () => new Set(foundGroups.flatMap((g) => g.character_ids)),
++    [foundGroups],
++  )
+ 
+   const remainingGrid = puzzle
+     ? puzzle.grid.filter((ch) => !foundCharacterIds.has(ch.id))
+@@ -86,6 +96,35 @@ export default function AniConnectionsPage() {
+     setError(null)
+     const guessedIds = [...selected]
+     try {
++      if (isGuest && puzzle) {
++        const res = await fetch(`${API}/weekly-connections/current/guest-guess`, {
++          method: "POST",
++          headers: { "Content-Type": "application/json" },
++          body: JSON.stringify({ character_ids: guessedIds }),
++        })
++        if (!res.ok) throw new Error((await res.json())?.detail ?? "Something went wrong")
++        const data = await res.json()
++
++        if (!data.guess_correct) {
++          setWrongFlash(guessedIds)
++          await new Promise((r) => setTimeout(r, 700))
++          setWrongFlash([])
++        }
++        const found = data.guess_correct
++          ? [...foundGroups, { label: data.matched_category, character_ids: guessedIds }]
++          : foundGroups
++        const mistakes = (attempt?.mistakes ?? 0) + (data.guess_correct ? 0 : 1)
++        const solved = found.length === 4 ? true : mistakes >= MAX_MISTAKES ? false : null
++        const revealed: RevealedCategory[] | null = solved === null ? null
++          : await fetch(`${API}/weekly-connections/current/guest-reveal`).then((r) => r.json()).catch(() => null)
++
++        setFoundGroups(found)
++        setAttempt({ mistakes, found_categories: found.map((f) => f.label), solved })
++        setRevealedCategories(revealed)
++        setSelected([])
++        saveGuestProgress("weekly", puzzle.id, { mistakes, found, solved, revealed })
++        return
++      }
+       const res = await fetch(`${API}/weekly-connections/current/guess`, {
+         method: "POST",
+         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+@@ -134,7 +173,7 @@ export default function AniConnectionsPage() {
+   // Catégories trouvées, dans l'ordre où elles ont été trouvées, avec leurs
+   // couleurs et les vrais personnages (noms) pour l'affichage.
+   const foundCategoryDetails = foundLabels.map((label, i) => {
+-    const cat = revealedCategories?.find((c) => c.label === label)
++    const cat = foundGroups.find((c) => c.label === label)
+     const characters = cat ? puzzle.grid.filter((ch) => cat.character_ids.includes(ch.id)) : []
+     return { label, characters, colorClass: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }
+   })
+@@ -165,6 +204,7 @@ const assignedIds = (
+           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back</Link>
+         </div>
+ 
++        {isGuest && !concluded && <GuestCta variant="banner" />}
+         {!concluded && (
+           <div className="mb-4 flex items-center justify-between text-xs text-muted-foreground">
+             <span>Find the 4 groups of 4</span>
+@@ -253,6 +293,7 @@ const assignedIds = (
+             ) : (
+               <p className="text-lg font-semibold text-red-400">✕ Out of guesses</p>
+             )}
++            {isGuest && <GuestCta variant="after" />}
+             <Link href="/" className="mt-3 inline-block text-sm text-primary hover:underline">Back home</Link>
+           </div>
+         )}
+diff --git a/frontend/web/src/components/ui/GuestCta.tsx b/frontend/web/src/components/ui/GuestCta.tsx
+new file mode 100644
+index 0000000..5dfca14
+--- /dev/null
++++ b/frontend/web/src/components/ui/GuestCta.tsx
+@@ -0,0 +1,27 @@
++import Link from "next/link"
++
++// Affiché aux invités, avant la partie (discret) ou après (appel à l'action).
++export function GuestCta({ variant }: { variant: "banner" | "after" }) {
++  if (variant === "banner") {
++    return (
++      <p className="mb-4 rounded-xl border border-border/50 bg-background/30 px-3 py-2 text-center text-[11px] text-muted-foreground">
++        Playing as a guest ·{" "}
++        <Link href="/login" className="text-primary hover:underline">Log in</Link> to keep your streak and earn AniCoins
++      </p>
++    )
++  }
++  return (
++    <div className="mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4 text-center">
++      <p className="text-sm font-semibold">Enjoyed it? Keep your progress.</p>
++      <p className="mt-1 text-xs text-muted-foreground">
++        Create a free account to build a daily streak, earn AniCoins and climb the leaderboard.
++      </p>
++      <Link
++        href="/login"
++        className="mt-3 inline-block rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
++      >
++        Create a free account
++      </Link>
++    </div>
++  )
++}
+diff --git a/frontend/web/src/lib/guestPlay.ts b/frontend/web/src/lib/guestPlay.ts
+new file mode 100644
+index 0000000..7dfa5e1
+--- /dev/null
++++ b/frontend/web/src/lib/guestPlay.ts
+@@ -0,0 +1,22 @@
++// Progression des parties jouées en invité, gardée dans le navigateur.
++// Le serveur n'enregistre rien pour un invité : c'est ce qui permet de
++// recharger la page sans perdre ses essais. Aucune valeur de sécurité.
++
++const PREFIX = "anibet:guest:"
++
++export function loadGuestProgress<T>(game: string, id: number): T | null {
++  try {
++    const raw = localStorage.getItem(`${PREFIX}${game}:${id}`)
++    return raw ? (JSON.parse(raw) as T) : null
++  } catch {
++    return null
++  }
++}
++
++export function saveGuestProgress(game: string, id: number, value: unknown): void {
++  try {
++    localStorage.setItem(`${PREFIX}${game}:${id}`, JSON.stringify(value))
++  } catch {
++    // stockage plein ou désactivé : la partie continue, sans reprise possible
++  }
++}

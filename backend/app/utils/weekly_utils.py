@@ -79,6 +79,25 @@ def delete_puzzle(puzzle_id: int) -> None:
         conn.commit()
 
 
+def match_guess(puzzle_id: int, character_ids: list[int]) -> str | None:
+    """Label de la catégorie correspondant exactement au groupe, sinon None.
+    Sans rien enregistrer (jeu en invité)."""
+    if len(character_ids) != 4:
+        raise ValueError("A guess must contain exactly 4 character ids")
+    guess = set(character_ids)
+    for cat in _get_categories_for_puzzle(puzzle_id):
+        if set(cat["character_ids"]) == guess:
+            return cat["label"]
+    return None
+
+
+def found_groups(puzzle_id: int, found_labels: list[str]) -> list[dict]:
+    """Catégories déjà trouvées, dans l'ordre où le joueur les a trouvées.
+    Aucune fuite : le joueur les connaît déjà."""
+    by_label = {c["label"]: c for c in _get_categories_for_puzzle(puzzle_id)}
+    return [by_label[label] for label in found_labels if label in by_label]
+
+
 def get_existing_attempt(user_id: int, puzzle_id: int) -> dict | None:
     with pool.connection() as conn:
         with conn.cursor() as cur:

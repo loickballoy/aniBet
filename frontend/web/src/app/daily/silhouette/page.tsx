@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
+import { GuestCta } from "@/components/ui/GuestCta"
+import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
 
 type Challenge = {
   id: number
@@ -23,8 +24,8 @@ const MAX_GUESSES = 3
 const BLUR_STEPS = [24, 14, 6]
 
 export default function SilhouettePage() {
-  const router = useRouter()
   const [token, setToken] = React.useState("")
+  const [isGuest, setIsGuest] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [challenge, setChallenge] = React.useState<Challenge | null>(null)
   const [attempt, setAttempt] = React.useState<Attempt>(null)
@@ -36,19 +37,24 @@ export default function SilhouettePage() {
 
   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
-  async function load(t: string) {
-    const res = await fetch(`${API}/daily-challenges/today`, { headers: { Authorization: `Bearer ${t}` } })
+  async function load(t: string | null) {
+    const res = await fetch(`${API}/daily-challenges/today`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
     if (res.status === 404) { setChallenge(null); return }
     const data = await res.json()
     setChallenge(data.challenge)
     setAttempt(data.attempt)
     setRevealedAnswer(data.revealed_answer)
+    if (!t && data.challenge?.type === "silhouette") {
+      const saved = loadGuestProgress<{ attempt: Attempt; revealed: { character_name: string; series: string } | null }>("silhouette", data.challenge.id)
+      if (saved) { setAttempt(saved.attempt); setRevealedAnswer(saved.revealed) }
+    }
   }
 
   React.useEffect(() => {
     const t = localStorage.getItem("access_token")
-    if (!t) { router.replace("/login"); return }
-    setToken(t)
+    // Sans token : on joue en invité au lieu de renvoyer vers la connexion.
+    setToken(t ?? "")
+    setIsGuest(!t)
     load(t).finally(() => setLoading(false))
   }, [])
 
@@ -64,6 +70,27 @@ export default function SilhouettePage() {
     setError(null)
     setLastGuessWrong(false)
     try {
+      if (isGuest && challenge) {
+        const previous = attempt?.guesses ?? []
+        const final = previous.length + 1 >= MAX_GUESSES
+        const res = await fetch(`${API}/daily-challenges/today/silhouette/guest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ guess: guess.trim(), final }),
+        })
+        if (!res.ok) throw new Error((await res.json())?.detail ?? "Something went wrong")
+        const data = await res.json()
+        if (!data.guess_correct) setLastGuessWrong(true)
+        const next: Attempt = {
+          guesses: [...previous, guess.trim()],
+          result: data.guess_correct ? "solved" : final ? "failed" : null,
+        }
+        setAttempt(next)
+        if (data.answer) setRevealedAnswer(data.answer)
+        saveGuestProgress("silhouette", challenge.id, { attempt: next, revealed: data.answer ?? null })
+        setGuess("")
+        return
+      }
       const res = await fetch(`${API}/daily-challenges/today/silhouette/guess`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -109,6 +136,7 @@ export default function SilhouettePage() {
           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back</Link>
         </div>
 
+        {isGuest && !concluded && <GuestCta variant="banner" />}
         <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60">
           <div className="relative aspect-square w-full overflow-hidden bg-background/40">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -168,6 +196,7 @@ export default function SilhouettePage() {
                     {revealedAnswer.series && <> — {revealedAnswer.series}</>}
                   </p>
                 )}
+                {isGuest && <GuestCta variant="after" />}
                 <Link href="/" className="mt-4 inline-block text-sm text-primary hover:underline">
                   Back home
                 </Link>

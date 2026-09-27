@@ -12,9 +12,7 @@ export default function DailyRouterPage() {
 
   React.useEffect(() => {
     const token = localStorage.getItem("access_token")
-    if (!token) { router.replace("/login"); return }
-
-    fetch(`${API}/daily-challenges/today`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API}/daily-challenges/today`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then(async (res) => {
         if (!res.ok) { router.replace("/daily/trivia"); return }
         const data = await res.json()

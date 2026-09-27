@@ -3,22 +3,26 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.models.daily import (
     DailyChallenge, CreateDailyChallengeRequest,
-    TriviaSubmitRequest, SilhouetteGuessRequest, Streak,
+    TriviaSubmitRequest, SilhouetteGuessRequest, SilhouetteGuestGuessRequest, Streak,
 )
 from app.utils import auth_utils
 from app.utils import daily_utils
 
 user_dependency = auth_utils.user_dependency
+optional_user_dependency = auth_utils.optional_user_dependency
 
 DailyRouter = APIRouter(tags=["daily"])
 
 
 @DailyRouter.get("/daily-challenges/today")
-async def get_todays_challenge(current_user: user_dependency):
+async def get_todays_challenge(current_user: optional_user_dependency):
     today = date_type.today()
     challenge = daily_utils.get_challenge_for_date(today)
     if not challenge:
         raise HTTPException(status_code=404, detail="No challenge scheduled for today")
+
+    if current_user is None:  # invité : sa progression vit dans son navigateur
+        return {"challenge": challenge, "attempt": None, "revealed_answer": None}
 
     user_id = auth_utils.get_user_id(current_user.username)
     attempt = daily_utils.get_existing_attempt(user_id, challenge.id)
@@ -98,3 +102,28 @@ async def delete_daily_challenge(challenge_id: int, current_user: user_dependenc
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"message": "Deleted"}
+
+
+# ---------------------------------------------------------------------------
+# Jeu en invité : même partie, rien n'est enregistré, aucune récompense.
+# ---------------------------------------------------------------------------
+
+@DailyRouter.post("/daily-challenges/today/trivia/guest", status_code=status.HTTP_200_OK)
+async def submit_trivia_guest(request: TriviaSubmitRequest):
+    challenge = daily_utils.get_challenge_for_date(date_type.today())
+    if not challenge or challenge.type != "trivia":
+        raise HTTPException(status_code=400, detail="No trivia challenge today")
+    try:
+        graded = daily_utils.grade_trivia(challenge, request.answers)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"result": "solved" if graded["solved"] else "failed", **graded}
+
+
+@DailyRouter.post("/daily-challenges/today/silhouette/guest", status_code=status.HTTP_200_OK)
+async def guess_silhouette_guest(request: SilhouetteGuestGuessRequest):
+    challenge = daily_utils.get_challenge_for_date(date_type.today())
+    if not challenge or challenge.type != "silhouette":
+        raise HTTPException(status_code=400, detail="No silhouette challenge today")
+    correct, answer = daily_utils.check_silhouette_guess(challenge.id, request.guess)
+    return {"guess_correct": correct, "answer": answer if (correct or request.final) else None}

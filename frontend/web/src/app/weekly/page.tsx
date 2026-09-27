@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
+import { GuestCta } from "@/components/ui/GuestCta"
+import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
 
 type Character = { id: number; name: string; image_url: string }
 type Puzzle = { id: number; week_of: string; grid: Character[] }
@@ -13,6 +14,7 @@ type Attempt = {
   solved: boolean | null
 } | null
 type RevealedCategory = { label: string; character_ids: number[] }
+type GuestWeekly = { mistakes: number; found: RevealedCategory[]; solved: boolean | null; revealed: RevealedCategory[] | null }
 
 const MAX_MISTAKES = 5 // doit rester synchro avec weekly_utils.py côté backend
 
@@ -24,8 +26,11 @@ const CATEGORY_COLORS = [
 ]
 
 export default function AniConnectionsPage() {
-  const router = useRouter()
   const [token, setToken] = React.useState("")
+  const [isGuest, setIsGuest] = React.useState(false)
+  // Groupes déjà trouvés, avec leurs personnages : indispensable pour les
+  // retirer de la grille et afficher leurs noms PENDANT la partie.
+  const [foundGroups, setFoundGroups] = React.useState<RevealedCategory[]>([])
   const [loading, setLoading] = React.useState(true)
   const [puzzle, setPuzzle] = React.useState<Puzzle | null>(null)
   const [attempt, setAttempt] = React.useState<Attempt>(null)
@@ -37,19 +42,28 @@ export default function AniConnectionsPage() {
 
   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
-  async function load(t: string) {
-    const res = await fetch(`${API}/weekly-connections/current`, { headers: { Authorization: `Bearer ${t}` } })
+  async function load(t: string | null) {
+    const res = await fetch(`${API}/weekly-connections/current`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
     if (res.status === 404) { setPuzzle(null); return }
     const data = await res.json()
     setPuzzle(data.puzzle)
-    setAttempt(data.attempt)
-    setRevealedCategories(data.revealed_categories)
+    if (t) {
+      setAttempt(data.attempt)
+      setRevealedCategories(data.revealed_categories)
+      setFoundGroups(data.found_groups ?? [])
+      return
+    }
+    const saved = loadGuestProgress<GuestWeekly>("weekly", data.puzzle.id)
+    setAttempt(saved ? { mistakes: saved.mistakes, found_categories: saved.found.map((f) => f.label), solved: saved.solved } : null)
+    setFoundGroups(saved?.found ?? [])
+    setRevealedCategories(saved?.revealed ?? null)
   }
 
   React.useEffect(() => {
     const t = localStorage.getItem("access_token")
-    if (!t) { router.replace("/login"); return }
-    setToken(t)
+    // Sans token : on joue en invité au lieu de renvoyer vers la connexion.
+    setToken(t ?? "")
+    setIsGuest(!t)
     load(t).finally(() => setLoading(false))
   }, [])
 
@@ -58,14 +72,10 @@ export default function AniConnectionsPage() {
 
   // Personnages restant à trouver : tout le grid moins ceux déjà dans une
   // catégorie trouvée. Une fois conclu, on n'affiche plus la grille libre.
-  const foundCharacterIds = React.useMemo(() => {
-    if (!revealedCategories) return new Set<number>()
-    return new Set(
-      revealedCategories
-        .filter((c) => foundLabels.includes(c.label))
-        .flatMap((c) => c.character_ids)
-    )
-  }, [revealedCategories, foundLabels])
+  const foundCharacterIds = React.useMemo(
+    () => new Set(foundGroups.flatMap((g) => g.character_ids)),
+    [foundGroups],
+  )
 
   const remainingGrid = puzzle
     ? puzzle.grid.filter((ch) => !foundCharacterIds.has(ch.id))
@@ -86,6 +96,35 @@ export default function AniConnectionsPage() {
     setError(null)
     const guessedIds = [...selected]
     try {
+      if (isGuest && puzzle) {
+        const res = await fetch(`${API}/weekly-connections/current/guest-guess`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ character_ids: guessedIds }),
+        })
+        if (!res.ok) throw new Error((await res.json())?.detail ?? "Something went wrong")
+        const data = await res.json()
+
+        if (!data.guess_correct) {
+          setWrongFlash(guessedIds)
+          await new Promise((r) => setTimeout(r, 700))
+          setWrongFlash([])
+        }
+        const found = data.guess_correct
+          ? [...foundGroups, { label: data.matched_category, character_ids: guessedIds }]
+          : foundGroups
+        const mistakes = (attempt?.mistakes ?? 0) + (data.guess_correct ? 0 : 1)
+        const solved = found.length === 4 ? true : mistakes >= MAX_MISTAKES ? false : null
+        const revealed: RevealedCategory[] | null = solved === null ? null
+          : await fetch(`${API}/weekly-connections/current/guest-reveal`).then((r) => r.json()).catch(() => null)
+
+        setFoundGroups(found)
+        setAttempt({ mistakes, found_categories: found.map((f) => f.label), solved })
+        setRevealedCategories(revealed)
+        setSelected([])
+        saveGuestProgress("weekly", puzzle.id, { mistakes, found, solved, revealed })
+        return
+      }
       const res = await fetch(`${API}/weekly-connections/current/guess`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -134,7 +173,7 @@ export default function AniConnectionsPage() {
   // Catégories trouvées, dans l'ordre où elles ont été trouvées, avec leurs
   // couleurs et les vrais personnages (noms) pour l'affichage.
   const foundCategoryDetails = foundLabels.map((label, i) => {
-    const cat = revealedCategories?.find((c) => c.label === label)
+    const cat = foundGroups.find((c) => c.label === label)
     const characters = cat ? puzzle.grid.filter((ch) => cat.character_ids.includes(ch.id)) : []
     return { label, characters, colorClass: CATEGORY_COLORS[i % CATEGORY_COLORS.length] }
   })
@@ -165,6 +204,7 @@ const assignedIds = (
           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back</Link>
         </div>
 
+        {isGuest && !concluded && <GuestCta variant="banner" />}
         {!concluded && (
           <div className="mb-4 flex items-center justify-between text-xs text-muted-foreground">
             <span>Find the 4 groups of 4</span>
@@ -253,6 +293,7 @@ const assignedIds = (
             ) : (
               <p className="text-lg font-semibold text-red-400">✕ Out of guesses</p>
             )}
+            {isGuest && <GuestCta variant="after" />}
             <Link href="/" className="mt-3 inline-block text-sm text-primary hover:underline">Back home</Link>
           </div>
         )}

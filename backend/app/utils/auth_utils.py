@@ -17,6 +17,8 @@ ALGORITHM = "HS256"
 
 
 oauth_bearer = OAuth2PasswordBearer(tokenUrl="auth/token")
+# Variante qui ne renvoie pas 401 sans token : pour les routes jouables en invité.
+oauth_bearer_optional = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
 
 # Oauth Google
 
@@ -321,3 +323,18 @@ def update_avatar(avatar_url, email: str) -> None:
         conn.commit()
 
 user_dependency = Annotated[dict, Depends(get_current_user)]
+
+
+def get_optional_user(token: Annotated[str | None, Depends(oauth_bearer_optional)]):
+    """Utilisateur connecté, ou None pour un invité. Un token absent, invalide
+    ou expiré donne un invité plutôt qu'une erreur : on ne bloque jamais
+    l'accès aux jeux."""
+    if not token:
+        return None
+    try:
+        return get_current_user(token)
+    except HTTPException:
+        return None
+
+
+optional_user_dependency = Annotated[object | None, Depends(get_optional_user)]

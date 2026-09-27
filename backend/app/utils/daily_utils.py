@@ -11,6 +11,9 @@ from psycopg.types.json import Json
 from app.db import pool
 from app.models.daily import DailyChallenge, Streak
 
+import re
+import unicodedata
+
 TRIVIA_REWARD = 200
 SILHOUETTE_REWARD = 150
 MAX_SILHOUETTE_GUESSES = 3
@@ -22,6 +25,45 @@ MAX_SILHOUETTE_GUESSES = 3
 # vrais taux de réussite.
 TRIVIA_PASS_THRESHOLD = 3
 
+def matches_answer(user_input: str, expected: str) -> bool:
+    def normalize(value: str) -> str:
+        value = unicodedata.normalize("NFD", value)
+        value = "".join(
+            char for char in value
+            if unicodedata.category(char) != "Mn"
+        )
+        return value.lower().strip()
+
+    user_input = normalize(user_input)
+    expected = expected.strip()
+
+    # Sépare le nom principal des alias entre parenthèses
+    match = re.fullmatch(r"(.+?)(?:\s*\((.*?)\))?", expected)
+
+    if not match:
+        return False
+
+    main_name = match.group(1)
+    aliases = match.group(2)
+
+    # "Ichigo Kurosaki" -> "ichigo", "kurosaki"
+    name_parts = [
+        normalize(part)
+        for part in main_name.split()
+        if len(part.strip()) >= 3
+    ]
+
+    # L'utilisateur peut donner le prénom OU le nom
+    if user_input in name_parts:
+        return True
+
+     # "Trafalgar D. Water Law, Tra-Guy"
+    if aliases:
+        for alias in aliases.split(","):
+            if user_input == normalize(alias):
+                return True
+
+    return False
 
 def get_challenge_for_date(challenge_date: date_type) -> DailyChallenge | None:
     """Version publique — ne renvoie jamais la colonne answer."""
@@ -72,16 +114,14 @@ def get_existing_attempt(user_id: int, challenge_id: int) -> dict | None:
             return cur.fetchone()
 
 
-def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, answers: list[int]) -> dict:
-    answer = _get_answer_for_challenge(challenge_id)
-    correct_indices = answer["correct_indices"]
-
+def grade_trivia(challenge: DailyChallenge, answers: list[int]) -> dict:
+    """Corrige une trivia SANS rien enregistrer (utilisé par les joueurs
+    connectés ET les invités)."""
+    correct_indices = _get_answer_for_challenge(challenge.id)["correct_indices"]
     if len(answers) != len(correct_indices):
         raise ValueError(f"Expected {len(correct_indices)} answers, got {len(answers)}")
 
-    challenge = get_challenge_for_date(challenge_date)
     weights = [q["difficulty_weight"] for q in challenge.content["questions"]]
-
     correct_count = 0
     score = 0
     for given, correct, weight in zip(answers, correct_indices, weights):
@@ -89,7 +129,23 @@ def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, an
             correct_count += 1
             score += weight
 
-    solved = correct_count >= TRIVIA_PASS_THRESHOLD
+    return {
+        "score": score,
+        "correct_count": correct_count,
+        "solved": correct_count >= TRIVIA_PASS_THRESHOLD,
+        "correct_indices": correct_indices,
+    }
+
+
+def check_silhouette_guess(challenge_id: int, guess: str) -> tuple[bool, dict]:
+    """(bonne réponse ?, réponse complète) — sans rien enregistrer."""
+    answer = _get_answer_for_challenge(challenge_id)
+    return guess.strip().lower() == answer["character_name"].strip().lower(), answer
+
+
+def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, answers: list[int]) -> dict:
+    graded = grade_trivia(get_challenge_for_date(challenge_date), answers)
+    score, correct_count, solved = graded["score"], graded["correct_count"], graded["solved"]
     reward = TRIVIA_REWARD if solved else 0
 
     with pool.connection() as conn:
@@ -115,7 +171,7 @@ def submit_silhouette_guess(user_id: int, challenge_id: int, challenge_date: dat
     answer = _get_answer_for_challenge(challenge_id)
     correct_name = answer["character_name"]
 
-    guess_correct = guess.strip().lower() == correct_name.strip().lower()
+    guess_correct = matches_answer(guess.strip().lower(), correct_name.strip().lower())
 
     with pool.connection() as conn:
         with conn.cursor() as cur:

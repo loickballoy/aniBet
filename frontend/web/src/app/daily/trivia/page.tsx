@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
+import { GuestCta } from "@/components/ui/GuestCta"
+import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
 
 type Question = {
   question: string
@@ -26,8 +27,8 @@ type Attempt = {
 } | null
 
 export default function TriviaPage() {
-  const router = useRouter()
   const [token, setToken] = React.useState("")
+  const [isGuest, setIsGuest] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [challenge, setChallenge] = React.useState<Challenge | null>(null)
   const [attempt, setAttempt] = React.useState<Attempt>(null)
@@ -38,8 +39,8 @@ export default function TriviaPage() {
 
   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
 
-  async function load(t: string) {
-    const res = await fetch(`${API}/daily-challenges/today`, { headers: { Authorization: `Bearer ${t}` } })
+  async function load(t: string | null) {
+    const res = await fetch(`${API}/daily-challenges/today`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
     if (res.status === 404) { setChallenge(null); return }
     const data = await res.json()
     setChallenge(data.challenge)
@@ -47,13 +48,18 @@ export default function TriviaPage() {
     setRevealedAnswer(data.revealed_answer)
     if (data.challenge?.type === "trivia") {
       setAnswers(Array(data.challenge.content.questions.length).fill(null))
+      if (!t) {
+        const saved = loadGuestProgress<{ attempt: Attempt; revealed: { correct_indices: number[] } }>("trivia", data.challenge.id)
+        if (saved) { setAttempt(saved.attempt); setRevealedAnswer(saved.revealed) }
+      }
     }
   }
 
   React.useEffect(() => {
     const t = localStorage.getItem("access_token")
-    if (!t) { router.replace("/login"); return }
-    setToken(t)
+    // Sans token : on joue en invité au lieu de renvoyer vers la connexion.
+    setToken(t ?? "")
+    setIsGuest(!t)
     load(t).finally(() => setLoading(false))
   }, [])
 
@@ -63,6 +69,21 @@ export default function TriviaPage() {
     setSubmitting(true)
     setError(null)
     try {
+      if (isGuest && challenge) {
+        const res = await fetch(`${API}/daily-challenges/today/trivia/guest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answers }),
+        })
+        if (!res.ok) throw new Error((await res.json())?.detail ?? "Something went wrong")
+        const data = await res.json()
+        const guestAttempt = { guesses: answers as number[], score: data.score, result: data.result }
+        const revealed = { correct_indices: data.correct_indices }
+        setAttempt(guestAttempt)
+        setRevealedAnswer(revealed)
+        saveGuestProgress("trivia", challenge.id, { attempt: guestAttempt, revealed })
+        return
+      }
       const res = await fetch(`${API}/daily-challenges/today/trivia`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -107,6 +128,7 @@ export default function TriviaPage() {
           <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Back</Link>
         </div>
 
+        {isGuest && !concluded && <GuestCta variant="banner" />}
         {concluded && (
           <div className={`mb-5 rounded-2xl border p-4 text-center ${
             attempt!.result === "solved" ? "border-emerald-500/30 bg-emerald-500/10" : "border-red-500/30 bg-red-500/10"
@@ -170,6 +192,7 @@ export default function TriviaPage() {
         )}
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
+        {concluded && isGuest && <GuestCta variant="after" />}
         {concluded && (
           <Link href="/" className="mt-5 block text-center text-sm text-primary hover:underline">
             Back home
