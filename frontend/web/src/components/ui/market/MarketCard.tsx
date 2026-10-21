@@ -26,14 +26,16 @@ export function MarketCard({ market }: { market: Market }) {
     >
       {/* Cover */}
       {market.imageUrl && (
-        <div className="relative h-32 w-full overflow-hidden">
+        <div className="relative h-40 w-full overflow-hidden sm:h-44">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={market.imageUrl}
             alt=""
             className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-card via-card/30 to-transparent" />
+          {/* Fondu limité au bas de l'image : juste de quoi lire le badge et
+              raccorder au contenu, le reste de la cover reste visible. */}
+          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-card via-card/40 to-transparent" />
           {market.category && (
             <div className="absolute bottom-2 left-3">
               <span className="rounded-full border border-border/40 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm">
