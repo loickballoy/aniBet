@@ -17,7 +17,7 @@ type Event = {
   series_id: number | null
   outcomes: { id: number; outcome: string; pool_points: number; is_winner: boolean }[]
 }
-type Tab = "create-event" | "manage-events" | "create-series" | "create-bingo" | "manage-series" | "manage-mods" | "daily-puzzles" | "handle-daily-weekly" | "manage-bingo" | "disputes" | "series-proposals"
+type Tab = "create-event" | "manage-events" | "create-series" | "create-bingo" | "manage-series" | "manage-mods" | "daily-puzzles" | "handle-daily-weekly" | "manage-bingo" | "disputes" | "series-proposals" | "growth"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_STYLE: Record<string, string> = {
@@ -1535,6 +1535,100 @@ function SeriesProposals({ token, API, notify, onApproved }: { token: string; AP
   )
 }
 
+// ── Growth metrics ───────────────────────────────────────────────────────────
+type WeekPair = { last_7d: number; prev_7d: number }
+type Metrics = {
+  total_users: number
+  signups: WeekPair
+  guest_plays: WeekPair
+  guest_to_signup_ratio: { last_7d: number | null; prev_7d: number | null }
+  first_bet_within_24h: { rate: number | null; cohort: number }
+  d7_retention: { rate: number | null; cohort: number }
+  bets_placed: WeekPair
+  daily_completions: WeekPair
+  avg_active_streak: number | null
+  proposals_submitted: WeekPair
+  proposals_approved: WeekPair
+  community_market_share_30d: { rate: number | null; community: number; total: number }
+}
+
+function Trend({ pair }: { pair: WeekPair }) {
+  const diff = pair.last_7d - pair.prev_7d
+  const color = diff > 0 ? "text-emerald-400" : diff < 0 ? "text-red-400" : "text-muted-foreground"
+  return <span className={`text-[11px] ${color}`}>{diff > 0 ? "▲" : diff < 0 ? "▼" : "="} vs {pair.prev_7d} prev. week</span>
+}
+
+function Kpi({ label, value, sub, hint }: { label: string; value: React.ReactNode; sub?: React.ReactNode; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-background/30 p-3">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xl font-bold tabular-nums">{value}</p>
+      {sub && <div className="mt-0.5">{sub}</div>}
+      {hint && <p className="mt-1 text-[10px] text-muted-foreground/70">{hint}</p>}
+    </div>
+  )
+}
+
+// Les 5 indicateurs de docs/GROWTH_PLAN.md (section 7), semaine en cours
+// comparée à la précédente.
+function GrowthMetrics({ token, API }: { token: string; API: string }) {
+  const [m, setM] = React.useState<Metrics | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    fetch(`${API}/admin/metrics`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (r) => { if (!r.ok) throw new Error((await r.json())?.detail ?? "Failed to load"); return r.json() })
+      .then(setM)
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
+  }, [API, token])
+
+  if (error) return <p className="text-sm text-red-400">{error}</p>
+  if (!m) return <p className="text-sm text-muted-foreground">Loading…</p>
+
+  const pct = (v: number | null) => (v == null ? "—" : `${v}%`)
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="mb-2 text-sm font-semibold">1 · Guests → accounts</h3>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Kpi label="Guest daily games (7d)" value={m.guest_plays.last_7d} sub={<Trend pair={m.guest_plays} />} />
+          <Kpi label="New accounts (7d)" value={m.signups.last_7d} sub={<Trend pair={m.signups} />} hint={`${m.total_users} accounts in total`} />
+          <Kpi label="Signups per 100 guest games" value={pct(m.guest_to_signup_ratio.last_7d)}
+            sub={<span className="text-[11px] text-muted-foreground">prev. week {pct(m.guest_to_signup_ratio.prev_7d)}</span>}
+            hint="Low → improve the guest result screen" />
+        </div>
+      </div>
+      <div>
+        <h3 className="mb-2 text-sm font-semibold">2 · First bet & 3 · Retention</h3>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Kpi label="First bet within 24h" value={pct(m.first_bet_within_24h.rate)}
+            hint={`Accounts from the last 30 days (n=${m.first_bet_within_24h.cohort}). Low → starter quest & closing soon`} />
+          <Kpi label="D7 retention" value={pct(m.d7_retention.rate)}
+            hint={`Still betting/playing 7+ days after signup (n=${m.d7_retention.cohort})`} />
+          <Kpi label="Bets placed (7d)" value={m.bets_placed.last_7d} sub={<Trend pair={m.bets_placed} />} />
+        </div>
+      </div>
+      <div>
+        <h3 className="mb-2 text-sm font-semibold">4 · Daily games</h3>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Kpi label="Daily games finished (7d)" value={m.daily_completions.last_7d} sub={<Trend pair={m.daily_completions} />} />
+          <Kpi label="Average active streak" value={m.avg_active_streak ?? "—"} hint="Among players with a streak > 0" />
+        </div>
+      </div>
+      <div>
+        <h3 className="mb-2 text-sm font-semibold">5 · Community-made markets</h3>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Kpi label="Proposals submitted (7d)" value={m.proposals_submitted.last_7d} sub={<Trend pair={m.proposals_submitted} />} />
+          <Kpi label="Proposals approved (7d)" value={m.proposals_approved.last_7d} sub={<Trend pair={m.proposals_approved} />} />
+          <Kpi label="Community share of markets (30d)" value={pct(m.community_market_share_30d.rate)}
+            hint={`${m.community_market_share_30d.community} of ${m.community_market_share_30d.total} new markets. Low → proposal rewards & mods`} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ControlPanel({mode}: {mode: "admin" | "mod"}) {
   const router = useRouter()
   const [user, setUser] = React.useState<User | null>(null)
@@ -1607,7 +1701,8 @@ export function ControlPanel({mode}: {mode: "admin" | "mod"}) {
     { id: "daily-puzzles", label: "🎮 Daily & Weekly" },
     { id: "handle-daily-weekly", label: "📋 Handle Daily & Weekly" },
     { id: "disputes", label: "⚖️ Disputes" },
-    { id: "series-proposals", label: "📥 Series proposals"}
+    { id: "series-proposals", label: "📥 Series proposals"},
+    { id: "growth", label: "📈 Growth" },
   ]
   const TABS = ALL_TABS.filter((t) => mode === "admin" || MOD_TABS.includes(t.id))
 
@@ -1723,6 +1818,15 @@ export function ControlPanel({mode}: {mode: "admin" | "mod"}) {
                 <h2 className="text-base font-semibold">Series proposals</h2>
               </div>
               <SeriesProposals token={token} API={API} notify={notify} onApproved={loadData} />
+            </>
+          )}
+          {tab === "growth" && (
+            <>
+              <div className="mb-4">
+                <h2 className="text-base font-semibold">Growth</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">This week vs last week — what to fix next is in docs/GROWTH_PLAN.md.</p>
+              </div>
+              <GrowthMetrics token={token} API={API} />
             </>
           )}
         </div>

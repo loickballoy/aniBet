@@ -7,6 +7,7 @@ export type Market = {
     volumeText?: string // ex: "12k AniCoins pariés"
     endDateText?: string // optionnel
     featured?: boolean
+    proposedBy?: string // pseudo de l'auteur si le pari vient de la communauté
     outcomes?: { id: number; label: string; poolPoints: number }[]
   }
   

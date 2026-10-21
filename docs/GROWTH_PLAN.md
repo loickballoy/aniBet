@@ -4,6 +4,14 @@ Goal: get anime/manga fans to **(1) try a game, (2) make an account, (3) place a
 bet, (4) propose bets of their own**. Each step below is ordered by
 impact ÷ effort, and tied to features that already exist or are small to add.
 
+> **Status (built in code):** share cards for games, bets and wins · per-market
+> link previews, sitemap, robots · starter quest · guest "you'd have earned" ·
+> closing soon · notification bell (results, approvals) · creator rewards
+> (+500 on approval, 0.5% of the pool) · "proposed by" · Top Creators ·
+> proposal templates · follows + friends leaderboard · admin Growth tab (the
+> section 7 metrics). Still manual: content, distribution, mods, emails
+> (see "What's left" at the bottom).
+
 The big advantage: aniBet runs on play money (AniCoins). There's no deposit and
 nothing to lose, so the pitch is just *"prove you called it first"*. Lean into
 that everywhere.
@@ -133,3 +141,14 @@ quest and "closing soon". If (5) is low → proposal rewards and mods.
 | 2 | OG images for markets, starter quest, first Discord server + Reddit posts |
 | 3 | Proposal rewards + "proposed by", recruit 2–3 series mods |
 | 4+ | Creator partnerships, streak reminders, measure and iterate |
+
+---
+
+### What's left (not code, or needs your accounts)
+
+- Run `backend/migrations/018_growth.sql` on the production database before deploying the backend.
+- Set `NEXT_PUBLIC_SITE_URL` (e.g. `https://anibet.io`) on the frontend so link previews and the sitemap use the real domain.
+- Submit `https://<your-domain>/sitemap.xml` in Google Search Console.
+- Streak-reminder emails: needs explicit opt-in + unsubscribe link (GDPR) and a scheduled job; not built.
+- Featured bet with 2× payout: needs a decision on who pays the bonus (it creates coins); not built.
+- Everything in sections 3 and 5 that is content or distribution.

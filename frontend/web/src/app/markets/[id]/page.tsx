@@ -23,6 +23,7 @@ type EventRow = {
   locks_at?: string | null
   cover_url?: string | null
   series_id?: number | null
+  proposed_by_username?: string | null
   outcomes: Outcome[]
 }
 
@@ -180,6 +181,9 @@ export default async function MarketDetailPage(props: { params: any }) {
                   <h1 className="text-xl font-bold leading-tight text-white sm:text-2xl">
                     {event.title}
                   </h1>
+                  {event.proposed_by_username && (
+                    <p className="mt-1 text-xs text-white/70">proposed by <span className="font-semibold text-white">@{event.proposed_by_username}</span></p>
+                  )}
                 </div>
                 <StatusBadge status={event.status} />
               </div>
@@ -200,6 +204,9 @@ export default async function MarketDetailPage(props: { params: any }) {
                 </span>
               )}
               <h1 className="text-2xl font-bold tracking-tight">{event.title}</h1>
+              {event.proposed_by_username && (
+                <p className="mt-1 text-xs text-muted-foreground">proposed by <span className="font-semibold text-primary">@{event.proposed_by_username}</span></p>
+              )}
             </div>
             <StatusBadge status={event.status} />
           </div>

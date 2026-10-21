@@ -8,6 +8,17 @@ import { Input, Textarea, Select, Toast } from "@/components/ui/form"
 
 type Series = { id: number; name: string; slug: string }
 
+// Modèles : un clic pré-remplit titre + issues, il ne reste qu'à compléter
+// les ___. Abaisser l'effort de proposition = plus de paris créés par la communauté.
+const TEMPLATES: { label: string; title: string; outcomes: string[] }[] = [
+  { label: "Appears in chapter…", title: "Will ___ appear in chapter ___?", outcomes: ["Yes", "No"] },
+  { label: "Who wins the fight?", title: "Who wins the fight: ___ vs ___?", outcomes: ["___", "___", "Draw / interrupted"] },
+  { label: "Dies before…", title: "Will ___ die before the end of the ___ arc?", outcomes: ["Yes", "No"] },
+  { label: "Reveal by date", title: "Will ___ be revealed before ___ (date)?", outcomes: ["Yes", "No"] },
+  { label: "Anime announcement", title: "Will a new ___ anime season be announced before ___?", outcomes: ["Yes", "No"] },
+  { label: "Next chapter break", title: "Will ___ take a break week before ___?", outcomes: ["Yes", "No"] },
+]
+
 export default function ProposeEventPage() {
   const router = useRouter()
   const [series, setSeries] = React.useState<Series[]>([])
@@ -120,7 +131,7 @@ export default function ProposeEventPage() {
             <h1 className="text-2xl font-bold tracking-tight">Propose</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {mode === "event"
-                ? "Suggest a market for an existing series — a mod for that series reviews it before it goes live."
+                ? "Suggest a market for an existing series — a mod reviews it before it goes live. Approved: +500 AniCoins, plus 0.5% of the pool when it pays out."
                 : "Suggest a new series for the platform — an admin reviews every new series."}
             </p>
           </div>
@@ -148,6 +159,22 @@ export default function ProposeEventPage() {
         <form onSubmit={mode === "event" ? submit : submitSeries} className="space-y-4 rounded-2xl border border-border/60 bg-card/60 p-6">
           {mode === "event" ? (
             <>
+              <div>
+                <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Start from a template</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {TEMPLATES.map((t) => (
+                    <button
+                      key={t.label}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => { setTitle(t.title); setOutcomes([...t.outcomes]) }}
+                      className="rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <Input
                 label="Title *"
                 value={title}

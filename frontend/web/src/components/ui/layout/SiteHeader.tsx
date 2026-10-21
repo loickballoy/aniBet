@@ -3,6 +3,7 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { UserWidget } from "@/components/ui/layout/UserWidget"
+import { NotificationBell } from "@/components/ui/layout/NotificationBell"
 
 const NAV = [
   { href: "/", label: "Markets", exact: true },
@@ -100,6 +101,7 @@ export function SiteHeader() {
               >
                 <span className="text-base leading-none">+</span> Propose
               </Link>
+              <NotificationBell />
               <UserWidget />
                 {isMod && !isAdmin && (
                 <Link
