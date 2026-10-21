@@ -96,7 +96,7 @@ export default async function HomePage({
     : `/events?status=open&limit=24&offset=0`
 
   const seriesFilter = seriesId ? `&series_id=${seriesId}` : ""
-  const [events, series, pendingPayout, disputed, closing] = await Promise.all([
+  const [events, trending, series, pendingPayout, disputed, closing] = await Promise.all([
     apiGet<EventWithOutcomes[]>(eventsPath),
     apiGet<TrendingEvent[]>(`/events/trending`),
     apiGet<SeriesRow[]>("/series"),
@@ -135,23 +135,7 @@ export default async function HomePage({
     .map((e) => ({ ...toCard(e), endDateText: closesIn(e.locks_at) }))
     .filter((c) => c.endDateText)
 
-  const trending_cards: HomeCard[] = trending.map((e) => {
-    const outcomes = e.outcomes ?? []
-    const totalFromOutcomes = outcomes.reduce((acc, o) => acc + Number(o.pool_points ?? 0), 0)
-    const firstPoints = Number(outcomes[0]?.pool_points ?? 0)
-    const yesPct = totalFromOutcomes > 0 ? Math.round((firstPoints / totalFromOutcomes) * 100) : 50
-    const s = e.series_id ? seriesById.get(e.series_id) : undefined
-    const poolTotal = Number(e.pool_total ?? totalFromOutcomes ?? 0)
-
-    return {
-      id: String(e.id),
-      question: e.title,
-      imageUrl: e.cover_url ?? s?.cover_url ?? undefined,
-      category: s?.name ?? undefined,
-      yesPct,
-      volumeText: formatPool(poolTotal),
-    }
-  });
+  const trending_cards: HomeCard[] = trending.map(toCard)
 
   const featured = trending_cards.slice(0, 6)
   const markets = cards.slice(0, 24)
