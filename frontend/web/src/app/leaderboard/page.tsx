@@ -13,6 +13,17 @@ type Row = {
   pfp_url: string | null
 }
 
+type CreatorRow = {
+  rank: number
+  username: string
+  pfp_url: string | null
+  approved_markets: number
+  total_pool: number
+  creator_earnings: number
+}
+
+type View = "global" | "following" | "creators"
+
 // ── Tiers config ──────────────────────────────────────────────────────────────
 const TIERS = [
   {
@@ -282,6 +293,46 @@ function TierBadge({ tier }: { tier: ReturnType<typeof getTier> }) {
 }
 
 // ── Skeleton row ──────────────────────────────────────────────────────────────
+function CreatorsTable({ rows }: { rows: CreatorRow[] | null }) {
+  if (rows === null) return <p className="px-4 py-10 text-center text-sm text-muted-foreground">Loading…</p>
+  if (rows.length === 0) {
+    return (
+      <p className="rounded-2xl border border-border/50 bg-card/40 px-4 py-10 text-center text-sm text-muted-foreground">
+        No community market yet — <Link href="/propose" className="text-primary hover:underline">propose the first one</Link> and earn 0.5% of its pool.
+      </p>
+    )
+  }
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/30 backdrop-blur-sm">
+      <div className="grid grid-cols-12 border-b border-border/40 bg-background/20 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+        <div className="col-span-1">#</div>
+        <div className="col-span-5">Creator</div>
+        <div className="col-span-2 text-right">Markets</div>
+        <div className="col-span-2 text-right">Volume</div>
+        <div className="col-span-2 text-right">Earned</div>
+      </div>
+      <div className="divide-y divide-border/25">
+        {rows.map((r) => (
+          <div key={r.username} className="grid grid-cols-12 items-center px-4 py-3 text-sm">
+            <div className="col-span-1"><Medal rank={r.rank} /></div>
+            <div className="col-span-5 flex items-center gap-2.5">
+              <Avatar username={r.username} pfpUrl={r.pfp_url} size={30} ringClass="" />
+              <span className="truncate font-medium">{r.username}</span>
+            </div>
+            <div className="col-span-2 text-right tabular-nums">{r.approved_markets}</div>
+            <div className="col-span-2 text-right tabular-nums text-muted-foreground">{formatPts(r.total_pool)}</div>
+            <div className="col-span-2 text-right tabular-nums text-emerald-400">+{formatPts(r.creator_earnings)}</div>
+          </div>
+        ))}
+      </div>
+      <p className="border-t border-border/40 px-4 py-2.5 text-[11px] text-muted-foreground">
+        Approved proposals earn +500, then 0.5% of the pool when the market pays out.{" "}
+        <Link href="/propose" className="text-primary hover:underline">Propose a bet →</Link>
+      </p>
+    </div>
+  )
+}
+
 function SkeletonRow() {
   return (
     <div className="flex items-center gap-3 px-4 py-3">
@@ -306,6 +357,47 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [filter, setFilter] = React.useState<string>("all")
+  const [view, setView] = React.useState<View>("global")
+  const [following, setFollowing] = React.useState<Set<string>>(new Set())
+  const [followRows, setFollowRows] = React.useState<Row[] | null>(null)
+  const [creators, setCreators] = React.useState<CreatorRow[] | null>(null)
+  const API = process.env.NEXT_PUBLIC_API_URL ?? ""
+  const authHeaders = (): Record<string, string> => {
+    const t = localStorage.getItem("access_token")
+    return t ? { Authorization: `Bearer ${t}` } : {}
+  }
+
+  async function loadFollowRows() {
+    const r = await fetch(`${API}/rank/leaderboard/following`, { headers: authHeaders() })
+    const data = r.ok ? await r.json() : []
+    setFollowRows((Array.isArray(data) ? data : []).map((x: { rank: number; username: string; points_balance: number; pfp_url?: string | null }) => ({
+      rank: x.rank, username: x.username, points_balance: x.points_balance,
+      tier: getTier(x.points_balance).name, pfp_url: x.pfp_url ?? null,
+    })))
+  }
+
+  async function toggleFollow(username: string) {
+    const isFollowing = following.has(username)
+    const next = new Set(following)
+    if (isFollowing) next.delete(username); else next.add(username)
+    setFollowing(next)  // optimiste
+    const res = await fetch(`${API}/users/${encodeURIComponent(username)}/follow`, {
+      method: isFollowing ? "DELETE" : "POST", headers: authHeaders(),
+    }).catch(() => null)
+    if (!res?.ok) setFollowing(following)  // échec : on revient en arrière
+    else if (followRows) loadFollowRows()
+  }
+
+  function switchView(v: View) {
+    setView(v)
+    if (v === "following" && followRows === null && myUsername) loadFollowRows()
+    if (v === "creators" && creators === null) {
+      fetch(`${API}/rank/creators?limit=50`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => setCreators(Array.isArray(data) ? data : []))
+        .catch(() => setCreators([]))
+    }
+  }
 
   React.useEffect(() => {
     const token =
@@ -343,6 +435,11 @@ export default function LeaderboardPage() {
         })
         .catch(() => {})
 
+      fetch(`${API}/users/me/following`, { headers: h })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((list) => setFollowing(new Set(Array.isArray(list) ? list : [])))
+        .catch(() => {})
+
       fetch(`${API}/rank/leaderboard/me`, { headers: h })
         .then((r) => (r.ok ? r.json() : null))
         .then((rank) => {
@@ -353,7 +450,8 @@ export default function LeaderboardPage() {
   }, [])
 
   const filtered =
-    filter === "all" ? rows : rows.filter((r) => r.tier === filter)
+    view === "following" ? (followRows ?? [])
+    : filter === "all" ? rows : rows.filter((r) => r.tier === filter)
 
   const showMyBanner =
     myRank !== null && myUsername !== null && myPoints !== null
@@ -426,7 +524,34 @@ export default function LeaderboardPage() {
           </div>
         )}
 
-        {loading ? (
+        {/* ── Vue : global / amis / créateurs ── */}
+        <div className="mb-5 inline-flex rounded-2xl border border-border/50 bg-muted/30 p-1">
+          {([["global", "Global"], ["following", "Following"], ["creators", "Top creators"]] as const).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => switchView(v)}
+              className={`rounded-xl px-3.5 py-1.5 text-xs font-medium transition ${
+                view === v ? "bg-background text-foreground shadow-sm ring-1 ring-border/60" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {view === "creators" ? (
+          <CreatorsTable rows={creators} />
+        ) : view === "following" && !myUsername ? (
+          <p className="rounded-2xl border border-border/50 bg-card/40 px-4 py-10 text-center text-sm text-muted-foreground">
+            <Link href="/login" className="text-primary hover:underline">Log in</Link> to follow friends and compare your scores.
+          </p>
+        ) : view === "following" && followRows === null ? (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">Loading…</p>
+        ) : view === "following" && followRows!.length <= 1 ? (
+          <p className="rounded-2xl border border-border/50 bg-card/40 px-4 py-10 text-center text-sm text-muted-foreground">
+            You don&apos;t follow anyone yet. Hit <span className="text-primary">Follow</span> on players in the Global ranking.
+          </p>
+        ) : loading ? (
           <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm">
             {Array.from({ length: 10 }).map((_, i) => (
               <React.Fragment key={i}>
@@ -442,12 +567,12 @@ export default function LeaderboardPage() {
         ) : (
           <>
             {/* ── Podium ── */}
-            {filter === "all" && rows.length > 0 && (
+            {view === "global" && filter === "all" && rows.length > 0 && (
               <Podium rows={rows} />
             )}
 
             {/* ── Tier filters ── */}
-            <div className="mb-5 flex flex-wrap gap-2">
+            <div className={`mb-5 flex flex-wrap gap-2 ${view === "global" ? "" : "hidden"}`}>
               <button
                 onClick={() => setFilter("all")}
                 className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all ${
@@ -551,6 +676,18 @@ export default function LeaderboardPage() {
                               </span>
                             )}
                           </span>
+                          {myUsername && !isMe && (
+                            <button
+                              onClick={() => toggleFollow(row.username)}
+                              className={`ml-auto mr-2 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${
+                                following.has(row.username)
+                                  ? "border-border/50 text-muted-foreground hover:border-red-500/40 hover:text-red-400"
+                                  : "border-primary/40 text-primary hover:bg-primary/10"
+                              }`}
+                            >
+                              {following.has(row.username) ? "Following" : "Follow"}
+                            </button>
+                          )}
                         </div>
 
                         {/* Tier */}

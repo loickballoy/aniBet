@@ -18,6 +18,7 @@ concurrentes — c'est elle qui a le dernier mot, pas la route.
 from app.db import pool
 from app.models.bet import Bet
 from app.models.event import Event, EventOutcome
+from app.utils.growth_utils import CREATOR_CUT_BPS
 
 
 # ---------------------------------------------------------------------------
@@ -32,24 +33,41 @@ def get_outcomes_for_event(event_id: int) -> list[EventOutcome]:
     return [EventOutcome(**row) for row in rows]
 
 
-def get_events(status: str | None = None, series_id: int | None = None, limit: int = 20, offset: int = 0) -> list[Event]:
+# Pseudo du proposeur joint à chaque event (affiché "proposed by @x").
+_EVENT_SELECT = """
+    SELECT e.*, u.username AS proposed_by_username
+    FROM events e
+    LEFT JOIN event_proposals p ON p.id = e.proposal_id
+    LEFT JOIN "User" u ON u.id = p.proposed_by
+"""
+
+
+def get_events(status: str | None = None, series_id: int | None = None, limit: int = 20, offset: int = 0,
+               sort: str = "recent") -> list[Event]:
     # Construction dynamique du WHERE : on ajoute une condition et son
     # paramètre seulement si le filtre est fourni. Les %s restent la seule
     # façon dont une valeur entre dans la requête — jamais de f-string.
     conditions = []
     params: list = []
     if status:
-        conditions.append("status = %s")
+        conditions.append("e.status = %s")
         params.append(status)
     if series_id:
-        conditions.append("series_id = %s")
+        conditions.append("e.series_id = %s")
         params.append(series_id)
+
+    if sort == "closing":
+        # "Closing soon" : seulement les paris encore ouverts avec une date limite à venir.
+        conditions.append("e.status = 'open' AND e.locks_at > now()")
+        order = "e.locks_at ASC"
+    else:
+        order = "e.created_at DESC"
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     query = f"""
-        SELECT * FROM events
+        {_EVENT_SELECT}
         {where_clause}
-        ORDER BY created_at DESC
+        ORDER BY {order}
         LIMIT %s OFFSET %s
     """
     params.extend([limit, offset])
@@ -64,7 +82,7 @@ def get_events(status: str | None = None, series_id: int | None = None, limit: i
 def get_event_by_id(event_id: int) -> Event | None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT * FROM events WHERE id = %s', (event_id,))
+            cur.execute(_EVENT_SELECT + ' WHERE e.id = %s', (event_id,))
             row = cur.fetchone()
     return Event(**row) if row else None
 
@@ -87,6 +105,20 @@ def get_bets_by_user(user_id: int) -> list[Bet]:
             cur.execute('SELECT * FROM bets WHERE user_id = %s', (user_id,))
             rows = cur.fetchall()
     return [Bet(**row) for row in rows]
+
+
+def get_payouts_by_user(user_id: int) -> dict[int, int]:
+    """bet_id -> AniCoins versés, d'après le ledger (kind 'bet_won')."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT reference_id, amount FROM point_transactions
+                WHERE user_id = %s AND kind = 'bet_won' AND reference_type = 'bet'
+                """,
+                (user_id,),
+            )
+            return {row["reference_id"]: row["amount"] for row in cur.fetchall()}
 
 
 def get_bets_by_outcome(outcome_id: int) -> list[Bet]:
@@ -288,6 +320,8 @@ def finalize_payout(event_id: int):
         with conn.cursor() as cur:
             try:
                 cur.execute('SELECT fn_finalize_payout(%s)', (event_id,))
+                # Même transaction : l'auteur de la proposition est payé avec les parieurs.
+                cur.execute('SELECT fn_pay_creator_cut(%s, %s)', (event_id, CREATOR_CUT_BPS))
             except Exception as e:
                 conn.rollback()
                 raise ValueError(str(e)) from e

@@ -58,6 +58,9 @@ export function MarketCard({ market }: { market: Market }) {
         <p className="line-clamp-2 flex-1 text-sm font-medium leading-snug">
           {market.question}
         </p>
+        {market.proposedBy && (
+          <p className="mt-1 text-[10px] text-muted-foreground">proposed by <span className="text-primary">@{market.proposedBy}</span></p>
+        )}
 
         <div className="mt-3 space-y-2">
 
@@ -113,6 +116,7 @@ export function MarketCard({ market }: { market: Market }) {
           <div className="flex items-center justify-between pt-0.5">
             <span className="text-[11px] text-muted-foreground">
               {market.volumeText ?? ""}
+              {market.endDateText && <span className="ml-2 text-orange-400">⏳ {market.endDateText}</span>}
             </span>
             <span className="text-[11px] font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
               Voir →

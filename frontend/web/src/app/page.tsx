@@ -5,7 +5,8 @@ import { FadeIn } from "@/components/ui/FadeIn"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import { Suspense } from "react"
-import { TrendingDown } from "lucide-react"
+import { StarterQuest } from "@/components/ui/home/StarterQuest"
+
 
 type OutcomeRow = {
   id: number
@@ -22,6 +23,8 @@ type EventWithOutcomes = {
   series_id: number | null
   pool_total?: number | null
   cover_url?: string | null
+  locks_at?: string | null
+  proposed_by_username?: string | null
   outcomes: OutcomeRow[]
 }
 
@@ -50,6 +53,20 @@ type HomeCard = {
   category?: string
   yesPct: number
   volumeText?: string
+  endDateText?: string
+  proposedBy?: string
+}
+
+// "closes in 3h" : calculé au rendu serveur (la page n'est jamais mise en cache).
+function closesIn(iso?: string | null): string | undefined {
+  if (!iso) return undefined
+  const ms = new Date(iso).getTime() - Date.now()
+  if (ms <= 0) return undefined
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 60) return `closes in ${minutes}m`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `closes in ${hours}h`
+  return `closes in ${Math.round(hours / 24)}d`
 }
 
 function formatPool(n: number) {
@@ -79,12 +96,13 @@ export default async function HomePage({
     : `/events?status=open&limit=24&offset=0`
 
   const seriesFilter = seriesId ? `&series_id=${seriesId}` : ""
-  const [events, trending, series, pendingPayout, disputed] = await Promise.all([
+  const [events, trending, series, pendingPayout, disputed, closing] = await Promise.all([
     apiGet<EventWithOutcomes[]>(eventsPath),
     apiGet<TrendingEvent[]>(`/events/trending`),
     apiGet<SeriesRow[]>("/series"),
     apiGet<EventWithOutcomes[]>(`/events?status=resolved_pending_dispute&limit=12&offset=0${seriesFilter}`).catch(() => []),
     apiGet<EventWithOutcomes[]>(`/events?status=disputed&limit=12&offset=0${seriesFilter}`).catch(() => []),
+    apiGet<EventWithOutcomes[]>(`/events?sort=closing&limit=3&offset=0${seriesFilter}`).catch(() => []),
   ])
 
   const recentResults = [...disputed, ...pendingPayout]
@@ -92,7 +110,7 @@ export default async function HomePage({
   const seriesById = new Map(series.map((s) => [s.id, s]))
   const activeSeries = seriesId ? seriesById.get(seriesId) : null
 
-  const cards: HomeCard[] = events.map((e) => {
+  const toCard = (e: EventWithOutcomes): HomeCard => {
     const outcomes = e.outcomes ?? []
     const totalFromOutcomes = outcomes.reduce((acc, o) => acc + Number(o.pool_points ?? 0), 0)
     const firstPoints = Number(outcomes[0]?.pool_points ?? 0)
@@ -107,26 +125,17 @@ export default async function HomePage({
       category: s?.name ?? undefined,
       yesPct,
       volumeText: formatPool(poolTotal),
+      proposedBy: e.proposed_by_username ?? undefined,
     }
-  })
+  }
 
-  const trending_cards: HomeCard[] = trending.map((e) => {
-    const outcomes = e.outcomes ?? []
-    const totalFromOutcomes = outcomes.reduce((acc, o) => acc + Number(o.pool_points ?? 0), 0)
-    const firstPoints = Number(outcomes[0]?.pool_points ?? 0)
-    const yesPct = totalFromOutcomes > 0 ? Math.round((firstPoints / totalFromOutcomes) * 100) : 50
-    const s = e.series_id ? seriesById.get(e.series_id) : undefined
-    const poolTotal = Number(e.pool_total ?? totalFromOutcomes ?? 0)
+  const cards: HomeCard[] = events.map(toCard)
+  // Urgence : les paris dont la date limite approche, avec le compte à rebours.
+  const closingCards: HomeCard[] = closing
+    .map((e) => ({ ...toCard(e), endDateText: closesIn(e.locks_at) }))
+    .filter((c) => c.endDateText)
 
-    return {
-      id: String(e.id),
-      question: e.title,
-      imageUrl: e.cover_url ?? s?.cover_url ?? undefined,
-      category: s?.name ?? undefined,
-      yesPct,
-      volumeText: formatPool(poolTotal),
-    }
-  });
+  const trending_cards: HomeCard[] = trending.map(toCard)
 
   const featured = trending_cards.slice(0, 6)
   const markets = cards.slice(0, 24)
@@ -144,12 +153,32 @@ export default async function HomePage({
           </FadeIn>
         )}
 
+        {/* Quête de démarrage (joueurs connectés, disparaît une fois finie) */}
+        <StarterQuest />
+
         {/* Series strip */}
         <FadeIn delay={120} from="bottom">
           <Suspense>
             <SeriesStrip series={series} />
           </Suspense>
         </FadeIn>
+
+        {/* Closing soon */}
+        {closingCards.length > 0 && (
+          <FadeIn delay={180} from="bottom">
+            <section className="mt-10">
+              <div className="mb-4 flex items-center gap-3">
+                <h3 className="text-lg font-semibold">⏳ Closing soon</h3>
+                <span className="text-xs text-muted-foreground">last chance to make your call</span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {closingCards.map((m) => (
+                  <MarketCard key={m.id} market={m} />
+                ))}
+              </div>
+            </section>
+          </FadeIn>
+        )}
 
         {/* Markets header */}
         <FadeIn delay={220} from="bottom">

@@ -1,5 +1,8 @@
+import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { ShareButton } from "@/components/ui/ShareButton"
+import { marketShareText } from "@/lib/share"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import BetBox from "@/components/ui/bet/BetBox"
 import ResolutionBox from "@/components/ui/bet/ResolutionBox"
@@ -20,6 +23,7 @@ type EventRow = {
   locks_at?: string | null
   cover_url?: string | null
   series_id?: number | null
+  proposed_by_username?: string | null
   outcomes: Outcome[]
 }
 
@@ -92,6 +96,22 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+// Titre/description propres quand le lien est collé sur Discord, X, Reddit…
+// L'image d'aperçu vient de opengraph-image.tsx (même dossier).
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await props.params
+  const event = await getEvent(id).catch(() => null)
+  if (!event) return { title: "Market not found · aniBet" }
+  const options = (event.outcomes ?? []).map((o) => o.outcome).join(" · ")
+  const description = `${options ? `${options} — ` : ""}place your call with AniCoins on aniBet, the anime & manga prediction game.`
+  return {
+    title: `${event.title} · aniBet`,
+    description,
+    openGraph: { title: event.title, description, type: "website" },
+    twitter: { card: "summary_large_image", title: event.title, description },
+  }
+}
+
 export default async function MarketDetailPage(props: { params: any }) {
   const resolvedParams = await Promise.resolve(props.params)
   const id = resolvedParams?.id as string | undefined
@@ -123,13 +143,14 @@ export default async function MarketDetailPage(props: { params: any }) {
       <main className="mx-auto w-full max-w-5xl px-4 py-8">
 
         {/* Back */}
-        <div style={{ animation: "fadeUp 0.3s ease both" }}>
+        <div className="flex items-center justify-between gap-3" style={{ animation: "fadeUp 0.3s ease both" }}>
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 rounded-xl border border-border/50 bg-background/30 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur-sm transition hover:border-border hover:text-foreground"
           >
             ← Retour
           </Link>
+          <ShareButton label="Share" className="px-3 py-1.5 text-xs" text={marketShareText(event.title, event.id)} />
         </div>
 
         {/* ── Hero cover ── */}
@@ -160,6 +181,9 @@ export default async function MarketDetailPage(props: { params: any }) {
                   <h1 className="text-xl font-bold leading-tight text-white sm:text-2xl">
                     {event.title}
                   </h1>
+                  {event.proposed_by_username && (
+                    <p className="mt-1 text-xs text-white/70">proposed by <span className="font-semibold text-white">@{event.proposed_by_username}</span></p>
+                  )}
                 </div>
                 <StatusBadge status={event.status} />
               </div>
@@ -180,6 +204,9 @@ export default async function MarketDetailPage(props: { params: any }) {
                 </span>
               )}
               <h1 className="text-2xl font-bold tracking-tight">{event.title}</h1>
+              {event.proposed_by_username && (
+                <p className="mt-1 text-xs text-muted-foreground">proposed by <span className="font-semibold text-primary">@{event.proposed_by_username}</span></p>
+              )}
             </div>
             <StatusBadge status={event.status} />
           </div>

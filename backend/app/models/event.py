@@ -29,6 +29,7 @@ class Event(BaseModel):
     fee_bps: int = 200
     cover_url: Optional[str] = None 
     created_by: Optional[int] = None
+    proposed_by_username: Optional[str] = None  # si le pari vient d'une proposition de la communauté
 
 
 class EventWithOutcomes(Event):
