@@ -58,3 +58,9 @@ class RateLimiter:
 
 login_limiter = RateLimiter(max_requests=10, window_seconds=60)      # 10 tentatives / minute
 signup_limiter = RateLimiter(max_requests=5, window_seconds=3600)    # 5 inscriptions / heure
+
+# Jeux en invité : assez pour rejouer, trop peu pour deviner la réponse en
+# boucle puis la soumettre avec son compte.
+guest_trivia_limiter = RateLimiter(max_requests=3, window_seconds=3600)       # 3 soumissions / heure
+guest_silhouette_limiter = RateLimiter(max_requests=6, window_seconds=3600)   # 2 parties de 3 essais / heure
+guest_weekly_limiter = RateLimiter(max_requests=30, window_seconds=3600)      # ~3 parties / heure

@@ -295,10 +295,14 @@ def get_notifications_for_user(user_id: int, unread_only: bool = True) -> list[N
     return [Notification(**row) for row in rows]
 
 
-def mark_notification_read(notification_id: int) -> None:
+def mark_notification_read(notification_id: int, user_id: int) -> None:
+    """Scopé au destinataire : on ne peut pas marquer les notifs d'un autre."""
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE notifications SET read_at = now() WHERE id = %s", (notification_id,))
+            cur.execute(
+                "UPDATE notifications SET read_at = now() WHERE id = %s AND user_id = %s",
+                (notification_id, user_id),
+            )
         conn.commit()
 
 def list_active_mod_scopes() -> list[dict]:

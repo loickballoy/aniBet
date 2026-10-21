@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.models.user import UserInLeaderboard
 from app.utils import auth_utils
@@ -13,7 +13,7 @@ RankRouter = APIRouter(
 )
 
 @RankRouter.get("/leaderboard", response_model=list[UserInLeaderboard])
-async def get_leaderboard(limit: int = 20, offset: int = 0) -> list[UserInLeaderboard]:
+async def get_leaderboard(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)) -> list[UserInLeaderboard]:
     return rank_utils.get_leaderboard(limit=limit, offset=offset)
 
 @RankRouter.get("/leaderboard/me")

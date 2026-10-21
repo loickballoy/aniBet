@@ -20,6 +20,8 @@ type Challenge = {
   content: { questions: Question[] }
 }
 
+type Revealed = { correct_indices?: number[]; correct?: boolean[] }
+
 type Attempt = {
   guesses: number[]
   score: number | null
@@ -32,7 +34,9 @@ export default function TriviaPage() {
   const [loading, setLoading] = React.useState(true)
   const [challenge, setChallenge] = React.useState<Challenge | null>(null)
   const [attempt, setAttempt] = React.useState<Attempt>(null)
-  const [revealedAnswer, setRevealedAnswer] = React.useState<{ correct_indices: number[] } | null>(null)
+  // Joueur connecté : correct_indices (la solution). Invité : seulement correct
+  // (juste/faux par question) — la solution est réservée aux comptes.
+  const [revealedAnswer, setRevealedAnswer] = React.useState<Revealed | null>(null)
   const [answers, setAnswers] = React.useState<(number | null)[]>([])
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -49,7 +53,7 @@ export default function TriviaPage() {
     if (data.challenge?.type === "trivia") {
       setAnswers(Array(data.challenge.content.questions.length).fill(null))
       if (!t) {
-        const saved = loadGuestProgress<{ attempt: Attempt; revealed: { correct_indices: number[] } }>("trivia", data.challenge.id)
+        const saved = loadGuestProgress<{ attempt: Attempt; revealed: Revealed }>("trivia", data.challenge.id)
         if (saved) { setAttempt(saved.attempt); setRevealedAnswer(saved.revealed) }
       }
     }
@@ -78,7 +82,7 @@ export default function TriviaPage() {
         if (!res.ok) throw new Error((await res.json())?.detail ?? "Something went wrong")
         const data = await res.json()
         const guestAttempt = { guesses: answers as number[], score: data.score, result: data.result }
-        const revealed = { correct_indices: data.correct_indices }
+        const revealed: Revealed = { correct: data.correct }
         setAttempt(guestAttempt)
         setRevealedAnswer(revealed)
         saveGuestProgress("trivia", challenge.id, { attempt: guestAttempt, revealed })
@@ -137,13 +141,16 @@ export default function TriviaPage() {
               {attempt!.result === "solved" ? "✓ Solved!" : "✕ Not quite"}
             </p>
             <p className="mt-0.5 text-sm text-muted-foreground">Score: {attempt!.score}</p>
+            {isGuest && <p className="mt-1 text-xs text-muted-foreground">Log in to see the right answers.</p>}
           </div>
         )}
 
         <div className="space-y-4">
           {questions.map((q, qi) => {
-            const correctIndex = revealedAnswer?.correct_indices[qi]
             const userAnswer = concluded ? attempt!.guesses[qi] : answers[qi]
+            // Invité : on sait seulement si SA réponse était juste.
+            const guestCorrect = revealedAnswer?.correct?.[qi]
+            const correctIndex = revealedAnswer?.correct_indices?.[qi] ?? (guestCorrect ? userAnswer : undefined)
 
             return (
               <div key={qi} className="rounded-2xl border border-border/60 bg-card/60 p-4">

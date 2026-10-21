@@ -1,5 +1,5 @@
 from datetime import date as date_type
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.models.daily import (
     DailyChallenge, CreateDailyChallengeRequest,
@@ -7,6 +7,8 @@ from app.models.daily import (
 )
 from app.utils import auth_utils
 from app.utils import daily_utils
+from app.utils import trivia_scheduler
+from app.utils.rate_limit import guest_trivia_limiter, guest_silhouette_limiter
 
 user_dependency = auth_utils.user_dependency
 optional_user_dependency = auth_utils.optional_user_dependency
@@ -79,7 +81,23 @@ async def create_daily_challenge(request: CreateDailyChallengeRequest, current_u
     if request.type not in ("trivia", "silhouette"):
         raise HTTPException(status_code=400, detail="type must be 'trivia' or 'silhouette'")
 
-    return daily_utils.create_challenge(request.challenge_date, request.type, request.content, request.answer)
+    try:
+        return daily_utils.create_challenge(request.challenge_date, request.type, request.content, request.answer)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@DailyRouter.post("/admin/daily-challenges/auto-schedule", status_code=status.HTTP_200_OK)
+async def auto_schedule_trivia(current_user: user_dependency, days: int = 28):
+    """Génère dès maintenant les trivias lun/mer/ven/dim des `days` prochains
+    jours (sinon elles sont générées le jour même), pour les relire dans le
+    panel admin. Les dates déjà occupées ne sont jamais écrasées."""
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not 1 <= days <= 90:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+    created = trivia_scheduler.schedule_upcoming(date_type.today(), days)
+    return {"created": [d.isoformat() for d in created], "bank_size": len(trivia_scheduler.load_bank())}
 
 
 @DailyRouter.get("/streaks/me", response_model=Streak)
@@ -106,9 +124,15 @@ async def delete_daily_challenge(challenge_id: int, current_user: user_dependenc
 
 # ---------------------------------------------------------------------------
 # Jeu en invité : même partie, rien n'est enregistré, aucune récompense.
+#
+# Jamais la clé de correction : un joueur connecté pourrait jouer en invité,
+# lire les bonnes réponses puis les soumettre avec son compte pour gagner
+# les AniCoins et le streak. L'invité voit ses bonnes/mauvaises réponses,
+# pas les solutions — créer un compte les débloque.
 # ---------------------------------------------------------------------------
 
-@DailyRouter.post("/daily-challenges/today/trivia/guest", status_code=status.HTTP_200_OK)
+@DailyRouter.post("/daily-challenges/today/trivia/guest", status_code=status.HTTP_200_OK,
+                  dependencies=[Depends(guest_trivia_limiter)])
 async def submit_trivia_guest(request: TriviaSubmitRequest):
     challenge = daily_utils.get_challenge_for_date(date_type.today())
     if not challenge or challenge.type != "trivia":
@@ -117,13 +141,20 @@ async def submit_trivia_guest(request: TriviaSubmitRequest):
         graded = daily_utils.grade_trivia(challenge, request.answers)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"result": "solved" if graded["solved"] else "failed", **graded}
+    return {
+        "result": "solved" if graded["solved"] else "failed",
+        "score": graded["score"],
+        "correct_count": graded["correct_count"],
+        "correct": graded["correct"],
+    }
 
 
-@DailyRouter.post("/daily-challenges/today/silhouette/guest", status_code=status.HTTP_200_OK)
+@DailyRouter.post("/daily-challenges/today/silhouette/guest", status_code=status.HTTP_200_OK,
+                  dependencies=[Depends(guest_silhouette_limiter)])
 async def guess_silhouette_guest(request: SilhouetteGuestGuessRequest):
     challenge = daily_utils.get_challenge_for_date(date_type.today())
     if not challenge or challenge.type != "silhouette":
         raise HTTPException(status_code=400, detail="No silhouette challenge today")
     correct, answer = daily_utils.check_silhouette_guess(challenge.id, request.guess)
-    return {"guess_correct": correct, "answer": answer if (correct or request.final) else None}
+    # La réponse n'est renvoyée que si l'invité l'a trouvée lui-même.
+    return {"guess_correct": correct, "answer": answer if correct else None}

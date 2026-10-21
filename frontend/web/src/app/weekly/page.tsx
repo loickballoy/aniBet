@@ -115,8 +115,9 @@ export default function AniConnectionsPage() {
           : foundGroups
         const mistakes = (attempt?.mistakes ?? 0) + (data.guess_correct ? 0 : 1)
         const solved = found.length === 4 ? true : mistakes >= MAX_MISTAKES ? false : null
-        const revealed: RevealedCategory[] | null = solved === null ? null
-          : await fetch(`${API}/weekly-connections/current/guest-reveal`).then((r) => r.json()).catch(() => null)
+        // Les invités ne voient jamais la solution complète (sinon on pourrait
+        // la lire puis la jouer avec son compte) : seulement ce qu'ils ont trouvé.
+        const revealed: RevealedCategory[] | null = solved === null ? null : found
 
         setFoundGroups(found)
         setAttempt({ mistakes, found_categories: found.map((f) => f.label), solved })

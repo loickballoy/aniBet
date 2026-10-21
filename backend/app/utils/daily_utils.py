@@ -10,6 +10,7 @@ from psycopg.types.json import Json
 
 from app.db import pool
 from app.models.daily import DailyChallenge, Streak
+from app.utils import trivia_scheduler
 
 import re
 import unicodedata
@@ -65,15 +66,25 @@ def matches_answer(user_input: str, expected: str) -> bool:
 
     return False
 
-def get_challenge_for_date(challenge_date: date_type) -> DailyChallenge | None:
-    """Version publique — ne renvoie jamais la colonne answer."""
+def _select_challenge(challenge_date: date_type) -> dict | None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, challenge_date, type, content, created_at FROM daily_challenges WHERE challenge_date = %s",
                 (challenge_date,),
             )
-            row = cur.fetchone()
+            return cur.fetchone()
+
+
+def get_challenge_for_date(challenge_date: date_type) -> DailyChallenge | None:
+    """Version publique — ne renvoie jamais la colonne answer. Les jours de
+    trivia (lun/mer/ven/dim) sans challenge programmé, la trivia est générée
+    à la volée depuis la banque de questions."""
+    row = _select_challenge(challenge_date)
+    if row is None and trivia_scheduler.is_trivia_day(challenge_date):
+        # Re-sélection même si on n'a rien créé : un autre worker a pu gagner la course.
+        trivia_scheduler.ensure_trivia_for(challenge_date)
+        row = _select_challenge(challenge_date)
     return DailyChallenge(**row) if row else None
 
 
@@ -89,8 +100,15 @@ def _get_answer_for_challenge(challenge_id: int) -> dict:
 
 
 def create_challenge(challenge_date: date_type, type_: str, content: dict, answer: dict) -> DailyChallenge:
+    """ValueError si un challenge existe déjà à cette date (manuel ou trivia auto)."""
     with pool.connection() as conn:
         with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM daily_challenges WHERE challenge_date = %s", (challenge_date,))
+            if cur.fetchone():
+                raise ValueError(
+                    "A challenge is already scheduled for this date — delete it first "
+                    "(trivia days are auto-filled from the question bank)"
+                )
             cur.execute(
                 """
                 INSERT INTO daily_challenges (challenge_date, type, content, answer)
@@ -134,13 +152,14 @@ def grade_trivia(challenge: DailyChallenge, answers: list[int]) -> dict:
         "correct_count": correct_count,
         "solved": correct_count >= TRIVIA_PASS_THRESHOLD,
         "correct_indices": correct_indices,
+        "correct": [given == correct for given, correct in zip(answers, correct_indices)],
     }
 
 
 def check_silhouette_guess(challenge_id: int, guess: str) -> tuple[bool, dict]:
     """(bonne réponse ?, réponse complète) — sans rien enregistrer."""
     answer = _get_answer_for_challenge(challenge_id)
-    return guess.strip().lower() == answer["character_name"].strip().lower(), answer
+    return matches_answer(guess.strip().lower(), answer["character_name"].strip().lower()), answer
 
 
 def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, answers: list[int]) -> dict:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.models.season import Season, CreateSeasonRequest, SeasonSnapshot, HallOfFameEntry
 from app.utils import auth_utils
@@ -45,5 +45,5 @@ async def get_hall_of_fame():
 
 
 @SeasonRouter.get("/seasons/{season_id}/leaderboard", response_model=list[SeasonSnapshot])
-async def get_season_leaderboard(season_id: int, limit: int = 20, offset: int = 0):
+async def get_season_leaderboard(season_id: int, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
     return season_utils.get_season_leaderboard(season_id, limit, offset)

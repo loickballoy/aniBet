@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
@@ -42,7 +42,7 @@ class ProposeEventRequest(BaseModel):
 class ApproveProposalRequest(BaseModel):
     opens_at: Optional[datetime] = None
     locks_at: Optional[datetime] = None
-    fee_bps: int = 200
+    fee_bps: int = Field(default=200, ge=0, le=2000)  # cf CreateEventRequest
     cover_url: Optional[str] = None
 
 

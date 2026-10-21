@@ -196,6 +196,9 @@ export default function SilhouettePage() {
                     {revealedAnswer.series && <> — {revealedAnswer.series}</>}
                   </p>
                 )}
+                {!revealedAnswer && isGuest && (
+                  <p className="mt-1 text-sm text-muted-foreground">Log in to see who it was.</p>
+                )}
                 {isGuest && <GuestCta variant="after" />}
                 <Link href="/" className="mt-4 inline-block text-sm text-primary hover:underline">
                   Back home

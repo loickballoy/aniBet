@@ -58,19 +58,22 @@ def test_guest_trivia_is_graded_but_never_saved(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["result"] == "solved" and body["correct_count"] == 3
-    assert body["correct_indices"] == [0, 0, 0, 0, 0]
+    # Juste/faux par question, jamais la clé de correction (sinon on la lit
+    # en invité puis on la soumet avec son compte).
+    assert body["correct"] == [True, True, True, False, False]
+    assert "correct_indices" not in body
     assert _attempt_count() == before  # rien d'enregistré pour un invité
 
 
 @pytest.mark.order(133)
-def test_guest_silhouette_reveals_only_when_finished(client, admin_headers):
+def test_guest_silhouette_reveals_only_when_found(client, admin_headers):
     _reset_today(client, admin_headers, "silhouette",
                  {"image_url": "https://x/blur.png", "hints": []},
                  {"character_name": "Luffy", "series": "One Piece"})
     wrong = client.post("/daily-challenges/today/silhouette/guest", json={"guess": "Zoro"}).json()
     assert wrong == {"guess_correct": False, "answer": None}
     last_wrong = client.post("/daily-challenges/today/silhouette/guest", json={"guess": "Zoro", "final": True}).json()
-    assert last_wrong["answer"]["character_name"] == "Luffy"
+    assert last_wrong["answer"] is None
     right = client.post("/daily-challenges/today/silhouette/guest", json={"guess": " luffy "}).json()
     assert right["guess_correct"] is True
     assert _attempt_count() == 0
@@ -94,13 +97,14 @@ def test_guest_can_load_weekly_without_token(client):
 
 
 @pytest.mark.order(136)
-def test_guest_weekly_guess_and_reveal(client):
+def test_guest_weekly_guess_without_full_reveal(client):
     # Puzzle créé par test_10 : "Capitaines" = personnages 0 à 3.
     right = client.post("/weekly-connections/current/guest-guess", json={"character_ids": [0, 1, 2, 3]}).json()
     assert right == {"guess_correct": True, "matched_category": "Capitaines"}
     wrong = client.post("/weekly-connections/current/guest-guess", json={"character_ids": [0, 4, 8, 12]}).json()
     assert wrong["guess_correct"] is False
-    assert len(client.get("/weekly-connections/current/guest-reveal").json()) == 4
+    # L'ancienne route qui donnait toute la solution n'existe plus.
+    assert client.get("/weekly-connections/current/guest-reveal").status_code in (404, 405)
 
 
 @pytest.mark.order(137)
