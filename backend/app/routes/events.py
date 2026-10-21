@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, UTC
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.models.event import (
     Event, EventOutcome, EventWithOutcomes,
@@ -28,7 +28,7 @@ async def get_trending_events():
 
 
 @EventRouter.get('/', response_model=list[EventWithOutcomes])
-async def list_events(status: str | None = None, series_id: int | None = None, limit: int = 20, offset: int = 0):
+async def list_events(status: str | None = None, series_id: int | None = None, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
     events = bet_utils.get_events(status=status, series_id=series_id, limit=limit, offset=offset)
     result = []
     for event in events:

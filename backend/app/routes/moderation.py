@@ -57,7 +57,7 @@ async def reject_proposal(proposal_id: int, current_user: user_dependency):
     proposal = moderation_utils.get_proposal_by_id(proposal_id)
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found")
-    is_admin = current_user.role in ("admin", "role")
+    is_admin = current_user.role in ("admin", "owner")
     if not is_admin and not moderation_utils.is_mod_for_series(auth_utils.get_user_id(current_user.username), proposal.series_id):
         raise HTTPException(status_code=403, detail="Not a mod for this proposal's series")
 
@@ -144,7 +144,7 @@ async def get_my_notifications(current_user: user_dependency, unread_only: bool 
 
 @ModerationRouter.patch("/notifications/{notification_id}/read", status_code=status.HTTP_200_OK)
 async def mark_notification_read(notification_id: int, current_user: user_dependency):
-    moderation_utils.mark_notification_read(notification_id)
+    moderation_utils.mark_notification_read(notification_id, auth_utils.get_user_id(current_user.username))
     return {"message": "Marked as read"}
 
 @ModerationRouter.get("/admin/mod-scopes")

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.models.weekly import WeeklyConnections, CreateWeeklyConnectionsRequest, WeeklyGuessRequest
 from app.utils import auth_utils
 from app.utils import weekly_utils
+from app.utils.rate_limit import guest_weekly_limiter
 
 user_dependency = auth_utils.user_dependency
 optional_user_dependency = auth_utils.optional_user_dependency
@@ -84,7 +85,8 @@ async def delete_weekly_puzzle(puzzle_id: int, current_user: user_dependency):
 # Jeu en invité : même partie, rien n'est enregistré, aucune récompense.
 # ---------------------------------------------------------------------------
 
-@WeeklyRouter.post("/weekly-connections/current/guest-guess", status_code=status.HTTP_200_OK)
+@WeeklyRouter.post("/weekly-connections/current/guest-guess", status_code=status.HTTP_200_OK,
+                   dependencies=[Depends(guest_weekly_limiter)])
 async def submit_guess_guest(request: WeeklyGuessRequest):
     puzzle = weekly_utils.get_puzzle_for_week(weekly_utils.get_current_week_start())
     if not puzzle:
@@ -95,13 +97,5 @@ async def submit_guess_guest(request: WeeklyGuessRequest):
         raise HTTPException(status_code=400, detail=str(e))
     return {"guess_correct": label is not None, "matched_category": label}
 
-
-@WeeklyRouter.get("/weekly-connections/current/guest-reveal")
-async def reveal_guest():
-    """Toutes les catégories, appelé par le navigateur de l'invité à la fin de
-    sa partie. Pas de contrôle possible côté serveur (rien n'est enregistré) :
-    accepté, un invité ne gagne rien."""
-    puzzle = weekly_utils.get_puzzle_for_week(weekly_utils.get_current_week_start())
-    if not puzzle:
-        raise HTTPException(status_code=404, detail="No AniConnections puzzle scheduled for this week")
-    return weekly_utils._get_categories_for_puzzle(puzzle.id)
+# Plus de route guest-reveal : elle donnait les 4 catégories à n'importe qui,
+# donc la solution complète (1000 AniCoins) avant de jouer avec son compte.

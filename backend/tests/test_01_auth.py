@@ -18,8 +18,9 @@ def test_signup_without_password_is_rejected(client):
         "username": "nopassword", "email": "nopass@test.local",
         "password_hash": "", "role": "user",
     })
-    assert resp.status_code == 400
-    assert "password" in resp.json()["detail"].lower()
+    # Validé par SignupRequest (8 caractères minimum) : 422 sur le champ password.
+    assert resp.status_code == 422
+    assert "password" in str(resp.json()["detail"]).lower()
 
 
 @pytest.mark.order(3)

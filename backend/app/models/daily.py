@@ -29,7 +29,8 @@ class SilhouetteGuessRequest(BaseModel):
 
 class SilhouetteGuestGuessRequest(BaseModel):
     guess: str
-    # Dernier essai de l'invité : on révèle la réponse même s'il se trompe.
+    # Dernier essai de l'invité. Conservé pour la compatibilité, mais la
+    # réponse n'est plus révélée sur un échec (voir routes/daily.py).
     final: bool = False
 
 

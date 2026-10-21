@@ -152,13 +152,14 @@ def grade_trivia(challenge: DailyChallenge, answers: list[int]) -> dict:
         "correct_count": correct_count,
         "solved": correct_count >= TRIVIA_PASS_THRESHOLD,
         "correct_indices": correct_indices,
+        "correct": [given == correct for given, correct in zip(answers, correct_indices)],
     }
 
 
 def check_silhouette_guess(challenge_id: int, guess: str) -> tuple[bool, dict]:
     """(bonne réponse ?, réponse complète) — sans rien enregistrer."""
     answer = _get_answer_for_challenge(challenge_id)
-    return guess.strip().lower() == answer["character_name"].strip().lower(), answer
+    return matches_answer(guess.strip().lower(), answer["character_name"].strip().lower()), answer
 
 
 def submit_trivia(user_id: int, challenge_id: int, challenge_date: date_type, answers: list[int]) -> dict:

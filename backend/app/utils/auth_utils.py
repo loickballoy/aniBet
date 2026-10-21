@@ -138,7 +138,7 @@ def verify_password(password: str, password_hash: str | None) -> bool:
 def authenticate_user(username: str, password: str) -> User | bool:
     user = get_user_by_username(username)
 
-    if not user:
+    if not user or user.is_banned:
         return False
     if not user.password_hash:
         return False
@@ -194,6 +194,8 @@ def get_current_user(token: Annotated[str, Depends(oauth_bearer)]):
         user = get_user_by_id(user_id)
         if user is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
+        if user.is_banned:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account is banned.")
         return user
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
@@ -213,23 +215,47 @@ def token_expired(token: Annotated[str, Depends(oauth_bearer)]):
 # Creation / update de compte
 #
 
+def _take_over_by_verified_email(email: str, column: str, provider_id: str) -> UserInDB | None:
+    """Rattache un compte OAuth à un compte existant de même email.
+
+    L'inscription par mot de passe ne vérifie pas l'email : quelqu'un peut
+    créer un compte avec l'adresse d'une victime AVANT qu'elle ne vienne via
+    Google/Discord. Sans précaution, le rattachement lui donnerait accès au
+    compte de la victime avec son propre mot de passe. Le fournisseur OAuth
+    prouve que la victime possède l'adresse : c'est elle qui garde le compte,
+    et le mot de passe (non vérifié) est invalidé.
+    """
+    if column not in ("google_sub", "discord_id"):  # interpolé dans le SQL ci-dessous
+        raise ValueError(f"Unexpected OAuth column {column}")
+    existing = get_user_by_email(email)
+    if existing is None:
+        return None
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f'UPDATE "User" SET {column} = %s, password_hash = NULL, updated_at = now() WHERE email = %s',
+                (provider_id, email),
+            )
+        conn.commit()
+    setattr(existing, column, provider_id)
+    existing.password_hash = None
+    return existing
+
+
 def create_user_from_google_info(google_user: GoogleUser):
-    google_sub = google_user.sub
-    email = google_user.email
-
-    existing_user = get_user_by_google_sub(google_sub)
-
+    existing_user = get_user_by_google_sub(google_user.sub)
     if existing_user:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute('UPDATE "User" SET google_sub = %s, updated_at = now() WHERE email = %s', (google_sub, email),)
-            conn.commit()
-        existing_user.google_sub = google_sub
         return existing_user
+
+    email = google_user.email
+    if get_user_by_email(email):
+        if not google_user.email_verified:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account already uses this email")
+        return _take_over_by_verified_email(email, "google_sub", str(google_user.sub))
 
     new_user = User(
         username=email,
-        google_sub=str(google_sub),
+        google_sub=str(google_user.sub),
         email=email,
         role="user"
     )
@@ -273,16 +299,8 @@ def create_user_from_discord_info(discord_user: DiscordUser) -> User:
             conn.commit()
         return new_user
 
-    existing_by_email = get_user_by_email(discord_user.email)
+    existing_by_email = _take_over_by_verified_email(discord_user.email, "discord_id", discord_user.id)
     if existing_by_email:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    'UPDATE "User" SET discord_id = %s, updated_at = now() WHERE email = %s',
-                    (discord_user.id, discord_user.email)
-                )
-            conn.commit()
-        existing_by_email.discord_id = discord_user.id
         return existing_by_email
 
     new_user = User(
@@ -303,6 +321,15 @@ def create_user_from_discord_info(discord_user: DiscordUser) -> User:
             )
         conn.commit()
     return new_user
+
+def is_allowed_avatar_url(url: str) -> bool:
+    """Seules les images passées par /uploads/presign (kind=avatar) : pas de
+    pixel de tracking ni d'URL arbitraire affichée aux autres joueurs."""
+    base = (settings.r2_public_url_base or "").rstrip("/")
+    if base:
+        return url.startswith(f"{base}/avatar/")
+    return url.startswith("https://")  # dev sans R2 configuré
+
 
 def change_username(new_username: str, old_username: str) -> None:
     with pool.connection() as conn:

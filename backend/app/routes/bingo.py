@@ -88,14 +88,14 @@ async def create_card(request: CreateBingoCardRequest, current_user: user_depend
 async def resolve_card(card_id: int, request: ResolveBingoCardRequest, current_user: user_dependency):
     user_id = auth_utils.get_user_id(current_user.username)
     card = bingo_utils.get_bingo_card(card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
     is_authorized = (
         current_user.role in ("admin", "owner")
         or (card.series_id is not None and moderation_utils.is_mod_for_series(user_id, card.series_id))
     )
     if not is_authorized:
         raise HTTPException(status_code=403, detail="Admin only")
-    if not card:
-        raise HTTPException(status_code=404, detail="Card not found")
     if card.status == "resolved":
         raise HTTPException(status_code=400, detail="Already resolved")
  

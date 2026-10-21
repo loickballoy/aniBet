@@ -15,7 +15,7 @@ from app.utils import auth_utils
 from app.utils import db_utils
 from app.utils.rate_limit import login_limiter, signup_limiter
 from app.validators.validators import (
-    DiscordUser, GoogleUser, Token, RefreshTokenRequest,
+    DiscordUser, GoogleUser, Token, RefreshTokenRequest, SignupRequest,
     ChangeUsernameRequest, ChangeAvatarRequest,
 )
 
@@ -81,21 +81,27 @@ def _issue_tokens_and_redirect(user) -> RedirectResponse:
     return RedirectResponse(f"{FRONTEND_URL}/auth#access_token={access_token}&refresh_token={refresh_token}")
 
 @AuthRouter.post('/signup', tags=["auth"], dependencies=[Depends(signup_limiter)])
-async def signup(user: UserInDB) -> dict[str, Any]:
-    if not user.password_hash:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password is required")
-
-    existing_user = auth_utils.get_user_by_email(user.email)
-    if existing_user:
+async def signup(request: SignupRequest) -> dict[str, Any]:
+    email = request.email.strip()
+    if auth_utils.get_user_by_email(email):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+    if auth_utils.get_user_by_username(request.username):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username Already taken")
 
-    user.password_hash = auth_utils.get_password_hash(user.password_hash)
+    # Construit côté serveur : role/points/is_banned prennent les valeurs par défaut.
+    user = UserInDB(
+        username=request.username,
+        email=email,
+        role="user",
+        password_hash=auth_utils.get_password_hash(request.password),
+    )
     db_utils.db_insert(user)
 
     return {"message": "User created successfully"}
 
-@AuthRouter.get("/get-user", status_code=status.HTTP_200_OK)
+@AuthRouter.get("/get-user", response_model=User, status_code=status.HTTP_200_OK)
 async def get_user(user: auth_utils.user_dependency):
+    # response_model=User : le hash du mot de passe ne sort jamais.
     return user
 
 @AuthRouter.post("/token", response_model=Token, status_code=status.HTTP_200_OK, dependencies=[Depends(login_limiter)])
@@ -137,11 +143,11 @@ async def change_username(request: ChangeUsernameRequest, current_user: auth_uti
     if not re.match(r'^[a-zA-Z0-9_\-\.]+$', new_username):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Caractères invalides")
 
-    existing = auth_utils.get_user_by_username(request.new_username)
+    existing = auth_utils.get_user_by_username(new_username)
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username Already taken")
 
-    auth_utils.change_username(request.new_username, current_user.username)
+    auth_utils.change_username(new_username, current_user.username)
 
     return {"message": "Username updated successfully"}
 
@@ -150,6 +156,8 @@ async def change_avatar(
     request: ChangeAvatarRequest,
     current_user: auth_utils.user_dependency
 ):
+    if not auth_utils.is_allowed_avatar_url(request.pfp_url):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Avatar must be an image uploaded to aniBet")
     auth_utils.update_avatar(request.pfp_url, current_user.email)
 
     return {"message": "Avatar mis à jour", "pfp_url": request.pfp_url}

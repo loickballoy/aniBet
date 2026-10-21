@@ -106,7 +106,13 @@ function LoginContent() {
       const txt = await res.text().catch(() => "")
       if (!res.ok) {
         let msg = txt
-        try { msg = JSON.parse(txt)?.detail ?? txt } catch {}
+        try {
+          const detail = JSON.parse(txt)?.detail ?? txt
+          // 422 de validation : liste d'erreurs pydantic -> phrase lisible.
+          msg = Array.isArray(detail)
+            ? "Username: 3–24 letters, digits, _ - . · Valid email · Password: at least 8 characters"
+            : detail
+        } catch {}
         throw new Error(msg || `Erreur (${res.status})`)
       }
       const data = JSON.parse(txt)
@@ -132,14 +138,19 @@ function LoginContent() {
         body: JSON.stringify({
           username: signupUsername,
           email: signupEmail,
-          password_hash: signupPassword,
-          role: "user",
+          password: signupPassword,
         }),
       })
       const txt = await res.text().catch(() => "")
       if (!res.ok) {
         let msg = txt
-        try { msg = JSON.parse(txt)?.detail ?? txt } catch {}
+        try {
+          const detail = JSON.parse(txt)?.detail ?? txt
+          // 422 de validation : liste d'erreurs pydantic -> phrase lisible.
+          msg = Array.isArray(detail)
+            ? "Username: 3–24 letters, digits, _ - . · Valid email · Password: at least 8 characters"
+            : detail
+        } catch {}
         throw new Error(msg || `Erreur (${res.status})`)
       }
       setSuccess("Account Created ! You can login right now.")
@@ -314,6 +325,8 @@ function LoginContent() {
                   value={signupPassword}
                   onChange={(e) => setSignupPassword(e.target.value)}
                   autoComplete="new-password"
+                  minLength={8}
+                  maxLength={128}
                   required
                   disabled={loading}
                 />

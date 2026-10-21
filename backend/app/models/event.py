@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional
 
@@ -41,8 +41,10 @@ class CreateEventRequest(BaseModel):
     series_id: Optional[int] = None
     opens_at: Optional[datetime] = None
     locks_at: Optional[datetime] = None
-    fee_bps: int = 200
-    outcomes: list[str]  # list of outcome labels
+    # 0–20 % : un fee négatif paierait plus que la cagnotte (AniCoins créés
+    # de rien), un fee de 100 % confisquerait toutes les mises.
+    fee_bps: int = Field(default=200, ge=0, le=2000)
+    outcomes: list[str] = Field(max_length=20)  # list of outcome labels
     cover_url: Optional[str] = None 
     tag_ids: list[int] = []
 
