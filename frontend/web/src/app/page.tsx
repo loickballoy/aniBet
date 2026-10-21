@@ -5,6 +5,7 @@ import { FadeIn } from "@/components/ui/FadeIn"
 import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import { Suspense } from "react"
+import { TrendingDown } from "lucide-react"
 
 type OutcomeRow = {
   id: number
@@ -22,6 +23,17 @@ type EventWithOutcomes = {
   pool_total?: number | null
   cover_url?: string | null
   outcomes: OutcomeRow[]
+}
+
+type TrendingEvent = {
+  id: number
+  title: string
+  description?: string | null
+  status: string
+  series_id: number | null
+  pool_total?: number | null
+  cover_url?: string | null
+  outcomes: OutcomeRow[] 
 }
 
 type SeriesRow = {
@@ -67,8 +79,9 @@ export default async function HomePage({
     : `/events?status=open&limit=24&offset=0`
 
   const seriesFilter = seriesId ? `&series_id=${seriesId}` : ""
-  const [events, series, pendingPayout, disputed] = await Promise.all([
+  const [events, trending, series, pendingPayout, disputed] = await Promise.all([
     apiGet<EventWithOutcomes[]>(eventsPath),
+    apiGet<TrendingEvent[]>(`/events/trending`),
     apiGet<SeriesRow[]>("/series"),
     apiGet<EventWithOutcomes[]>(`/events?status=resolved_pending_dispute&limit=12&offset=0${seriesFilter}`).catch(() => []),
     apiGet<EventWithOutcomes[]>(`/events?status=disputed&limit=12&offset=0${seriesFilter}`).catch(() => []),
@@ -97,7 +110,25 @@ export default async function HomePage({
     }
   })
 
-  const featured = cards.slice(0, 6)
+  const trending_cards: HomeCard[] = trending.map((e) => {
+    const outcomes = e.outcomes ?? []
+    const totalFromOutcomes = outcomes.reduce((acc, o) => acc + Number(o.pool_points ?? 0), 0)
+    const firstPoints = Number(outcomes[0]?.pool_points ?? 0)
+    const yesPct = totalFromOutcomes > 0 ? Math.round((firstPoints / totalFromOutcomes) * 100) : 50
+    const s = e.series_id ? seriesById.get(e.series_id) : undefined
+    const poolTotal = Number(e.pool_total ?? totalFromOutcomes ?? 0)
+
+    return {
+      id: String(e.id),
+      question: e.title,
+      imageUrl: e.cover_url ?? s?.cover_url ?? undefined,
+      category: s?.name ?? undefined,
+      yesPct,
+      volumeText: formatPool(poolTotal),
+    }
+  });
+
+  const featured = trending_cards.slice(0, 6)
   const markets = cards.slice(0, 24)
 
   return (
