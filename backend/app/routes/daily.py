@@ -7,6 +7,7 @@ from app.models.daily import (
 )
 from app.utils import auth_utils
 from app.utils import daily_utils
+from app.utils import trivia_scheduler
 
 user_dependency = auth_utils.user_dependency
 optional_user_dependency = auth_utils.optional_user_dependency
@@ -79,7 +80,23 @@ async def create_daily_challenge(request: CreateDailyChallengeRequest, current_u
     if request.type not in ("trivia", "silhouette"):
         raise HTTPException(status_code=400, detail="type must be 'trivia' or 'silhouette'")
 
-    return daily_utils.create_challenge(request.challenge_date, request.type, request.content, request.answer)
+    try:
+        return daily_utils.create_challenge(request.challenge_date, request.type, request.content, request.answer)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@DailyRouter.post("/admin/daily-challenges/auto-schedule", status_code=status.HTTP_200_OK)
+async def auto_schedule_trivia(current_user: user_dependency, days: int = 28):
+    """Génère dès maintenant les trivias lun/mer/ven/dim des `days` prochains
+    jours (sinon elles sont générées le jour même), pour les relire dans le
+    panel admin. Les dates déjà occupées ne sont jamais écrasées."""
+    if current_user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not 1 <= days <= 90:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 90")
+    created = trivia_scheduler.schedule_upcoming(date_type.today(), days)
+    return {"created": [d.isoformat() for d in created], "bank_size": len(trivia_scheduler.load_bank())}
 
 
 @DailyRouter.get("/streaks/me", response_model=Streak)

@@ -1068,6 +1068,8 @@ function HandleDailyWeekly({ token, API, notify }: { token: string; API: string;
   const [puzzles, setPuzzles] = React.useState<any[]>([])
   const [loading, setLoading] = React.useState(true)
   const [deleting, setDeleting] = React.useState<string | null>(null)
+  const [scheduling, setScheduling] = React.useState(false)
+  const [expanded, setExpanded] = React.useState<number | null>(null)
 
   async function loadAll() {
     const [ch, pz] = await Promise.all([
@@ -1110,10 +1112,37 @@ function HandleDailyWeekly({ token, API, notify }: { token: string; API: string;
     }
   }
 
+  async function autoSchedule() {
+    setScheduling(true)
+    try {
+      const res = await fetch(`${API}/admin/daily-challenges/auto-schedule?days=28`, { method: "POST", headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error((await res.json())?.detail ?? "Failed to schedule")
+      const data = await res.json()
+      notify(data.created.length ? `Scheduled ${data.created.length} trivia day(s)` : "Next 4 weeks are already filled")
+      await loadAll()
+    } catch (err: unknown) {
+      notify(err instanceof Error ? err.message : "Failed to schedule", "error")
+    } finally {
+      setScheduling(false)
+    }
+  }
+
   if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+        <p className="text-sm font-medium">Automatic trivia — Mon · Wed · Fri · Sun</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Trivia days with nothing scheduled are filled from the question bank automatically on the day.
+          Pre-fill the next 4 weeks to review the questions below (delete one to get a new draw, or schedule a silhouette instead).
+        </p>
+        <button onClick={autoSchedule} disabled={scheduling}
+          className="mt-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50">
+          {scheduling ? "Scheduling…" : "Pre-fill next 4 weeks"}
+        </button>
+      </div>
+
       <div>
         <h3 className="mb-2 text-sm font-semibold">Daily challenges (Trivia / Silhouette)</h3>
         {challenges.length === 0 ? (
@@ -1121,12 +1150,15 @@ function HandleDailyWeekly({ token, API, notify }: { token: string; API: string;
         ) : (
           <div className="space-y-2">
             {challenges.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded-xl border border-border/60 bg-background/30 p-3">
+              <div key={c.id} className="rounded-xl border border-border/60 bg-background/30 p-3">
+              <div className="flex items-center justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{c.challenge_date} — {c.type}</p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {c.type === "trivia"
-                      ? `${c.content?.questions?.length ?? 0} questions`
+                      ? <button type="button" onClick={() => setExpanded(expanded === c.id ? null : c.id)} className="hover:text-foreground hover:underline">
+                          {c.content?.questions?.length ?? 0} questions · {expanded === c.id ? "hide" : "review"}
+                        </button>
                       : `Answer: ${c.answer?.character_name ?? "?"}`}
                   </p>
                 </div>
@@ -1137,6 +1169,17 @@ function HandleDailyWeekly({ token, API, notify }: { token: string; API: string;
                 >
                   {deleting === `c${c.id}` ? "…" : "Delete"}
                 </button>
+              </div>
+              {expanded === c.id && c.type === "trivia" && (
+                <ol className="mt-2 space-y-1.5 border-t border-border/40 pt-2 text-[11px]">
+                  {(c.content?.questions ?? []).map((q: any, qi: number) => (
+                    <li key={qi}>
+                      <span className="text-muted-foreground">{q.series} · +{q.difficulty_weight} — </span>{q.question}
+                      <span className="ml-1 text-emerald-400">→ {q.options?.[c.answer?.correct_indices?.[qi]] ?? "?"}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
               </div>
             ))}
           </div>
