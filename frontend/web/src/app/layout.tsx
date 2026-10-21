@@ -14,9 +14,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const description = "Bet your AniCoins on what happens next in your favorite anime and manga. Free to play: daily trivia, weekly puzzles and prediction markets."
+
 export const metadata: Metadata = {
+  // Base des URLs absolues des aperçus (og:image…) : à définir en prod.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "aniBet — Anime & Manga Predictions",
-  description: "Bet your AniCoins on what happens next in your favorite anime and manga.",
+  description,
+  openGraph: { title: "aniBet — Anime & Manga Predictions", description, siteName: "aniBet", type: "website" },
+  twitter: { card: "summary_large_image" },
 };
 
 const display = Bricolage_Grotesque({

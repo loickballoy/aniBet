@@ -8,6 +8,7 @@ from app.models.daily import (
 from app.utils import auth_utils
 from app.utils import daily_utils
 from app.utils import trivia_scheduler
+from app.utils import growth_utils
 from app.utils.rate_limit import guest_trivia_limiter, guest_silhouette_limiter
 
 user_dependency = auth_utils.user_dependency
@@ -141,6 +142,7 @@ async def submit_trivia_guest(request: TriviaSubmitRequest):
         graded = daily_utils.grade_trivia(challenge, request.answers)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    growth_utils.record_guest_play("trivia")  # mesure de la conversion invité → compte
     return {
         "result": "solved" if graded["solved"] else "failed",
         "score": graded["score"],
@@ -156,5 +158,7 @@ async def guess_silhouette_guest(request: SilhouetteGuestGuessRequest):
     if not challenge or challenge.type != "silhouette":
         raise HTTPException(status_code=400, detail="No silhouette challenge today")
     correct, answer = daily_utils.check_silhouette_guess(challenge.id, request.guess)
+    if correct or request.final:  # partie terminée
+        growth_utils.record_guest_play("silhouette")
     # La réponse n'est renvoyée que si l'invité l'a trouvée lui-même.
     return {"guess_correct": correct, "answer": answer if correct else None}

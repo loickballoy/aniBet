@@ -9,6 +9,7 @@ from app.db import pool
 from app.models.moderation import ModScope, EventProposal, ResolutionDispute, Notification
 from app.models.event import Event, EventOutcome
 from app.utils import bet_utils
+from app.utils.growth_utils import CREATOR_CUT_BPS, PROPOSAL_APPROVED_REWARD
 from app.utils import email_utils
 
 
@@ -146,8 +147,26 @@ def approve_proposal(proposal_id: int, reviewed_by: int, opens_at, locks_at,
                 (reviewed_by, proposal_id),
             )
             cur.execute("UPDATE events SET proposal_id = %s WHERE id = %s", (proposal_id, event.id))
+            # Prime d'approbation, sauf si le mod approuve sa propre proposition
+            # (sinon un mod pourrait se verser 500 AniCoins à volonté).
+            if proposal.proposed_by != reviewed_by:
+                cur.execute(
+                    'UPDATE "User" SET points_balance = points_balance + %s WHERE id = %s',
+                    (PROPOSAL_APPROVED_REWARD, proposal.proposed_by),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO point_transactions (user_id, kind, amount, reference_type, reference_id)
+                    VALUES (%s, 'proposal_approved', %s, 'proposal', %s)
+                    """,
+                    (proposal.proposed_by, PROPOSAL_APPROVED_REWARD, proposal_id),
+                )
         conn.commit()
 
+    notify(proposal.proposed_by, "proposal_approved", {
+        "proposal_id": proposal_id, "event_id": event.id, "title": proposal.title,
+        "reward": PROPOSAL_APPROVED_REWARD if proposal.proposed_by != reviewed_by else 0,
+    })
     return event, outcomes
 
 
@@ -155,10 +174,41 @@ def reject_proposal(proposal_id: int, reviewed_by: int) -> None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE event_proposals SET status = 'rejected', reviewed_by = %s, reviewed_at = now() WHERE id = %s",
+                """
+                UPDATE event_proposals SET status = 'rejected', reviewed_by = %s, reviewed_at = now()
+                WHERE id = %s RETURNING proposed_by, title
+                """,
                 (reviewed_by, proposal_id),
             )
+            row = cur.fetchone()
         conn.commit()
+    if row:
+        notify(row["proposed_by"], "proposal_rejected", {"proposal_id": proposal_id, "title": row["title"]})
+
+
+def notify_bettors_of_result(event_id: int) -> None:
+    """Après le paiement : chaque parieur apprend s'il a gagné (et combien).
+    C'est le moment de partager sa carte "I called it"."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT b.id AS bet_id, b.user_id, b.status, e.title, eo.outcome,
+                       (SELECT amount FROM point_transactions pt
+                        WHERE pt.kind = 'bet_won' AND pt.reference_type = 'bet' AND pt.reference_id = b.id
+                        LIMIT 1) AS payout
+                FROM bets b
+                JOIN event_outcomes eo ON eo.id = b.outcome_id
+                JOIN events e ON e.id = eo.event_id
+                WHERE eo.event_id = %s AND b.status IN ('won', 'lost')
+                """,
+                (event_id,),
+            )
+            rows = cur.fetchall()
+    for r in rows:
+        notify(r["user_id"], "bet_won" if r["status"] == "won" else "bet_lost", {
+            "event_id": event_id, "title": r["title"], "outcome": r["outcome"], "payout": r["payout"],
+        })
 
 
 def _slugify(name: str) -> str:
@@ -374,6 +424,7 @@ def resolve_dispute(event_id: int, resolved_by: int, decision: str, new_winning_
                     "SELECT fn_resolve_dispute(%s::integer, %s::integer, %s::text, %s::integer)",
                     (event_id, resolved_by, decision, new_winning_outcome_id),
                 )
+                cur.execute("SELECT fn_pay_creator_cut(%s, %s)", (event_id, CREATOR_CUT_BPS))
             except Exception as e:
                 conn.rollback()
                 msg = getattr(getattr(e, "diag", None), "message_primary", None) or str(e)

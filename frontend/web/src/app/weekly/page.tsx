@@ -5,6 +5,8 @@ import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import { GuestCta } from "@/components/ui/GuestCta"
 import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
+import { ShareButton } from "@/components/ui/ShareButton"
+import { weeklyShareText } from "@/lib/share"
 
 type Character = { id: number; name: string; image_url: string }
 type Puzzle = { id: number; week_of: string; grid: Character[] }
@@ -17,6 +19,8 @@ type RevealedCategory = { label: string; character_ids: number[] }
 type GuestWeekly = { mistakes: number; found: RevealedCategory[]; solved: boolean | null; revealed: RevealedCategory[] | null }
 
 const MAX_MISTAKES = 5 // doit rester synchro avec weekly_utils.py côté backend
+// Récompense weekly_utils.py : 1000 - 150/erreur, plancher 200.
+const weeklyReward = (mistakes: number) => Math.max(200, 1000 - mistakes * 150)
 
 const CATEGORY_COLORS = [
   "border-emerald-500/50 bg-emerald-500/10 text-emerald-400",
@@ -294,7 +298,12 @@ const assignedIds = (
             ) : (
               <p className="text-lg font-semibold text-red-400">✕ Out of guesses</p>
             )}
-            {isGuest && <GuestCta variant="after" />}
+            {puzzle && (
+              <div className="mt-4">
+                <ShareButton text={weeklyShareText(puzzle.week_of, foundLabels.length, attempt?.mistakes ?? 0, Boolean(attempt?.solved))} />
+              </div>
+            )}
+            {isGuest && <GuestCta variant="after" missed={attempt?.solved ? `+${weeklyReward(attempt.mistakes)}` : null} />}
             <Link href="/" className="mt-3 inline-block text-sm text-primary hover:underline">Back home</Link>
           </div>
         )}

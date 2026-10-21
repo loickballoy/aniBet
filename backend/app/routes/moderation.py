@@ -179,4 +179,5 @@ async def resolve_dispute(event_id: int, request: ResolveDisputeRequest, current
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    moderation_utils.notify_bettors_of_result(event_id)
     return {"message": "Dispute resolved, payout finalized"}

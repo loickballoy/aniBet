@@ -5,6 +5,9 @@ import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import { GuestCta } from "@/components/ui/GuestCta"
 import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
+import { ShareButton } from "@/components/ui/ShareButton"
+import { silhouetteShareText } from "@/lib/share"
+import { useStreak } from "@/lib/useStreak"
 
 type Challenge = {
   id: number
@@ -36,6 +39,7 @@ export default function SilhouettePage() {
   const [lastGuessWrong, setLastGuessWrong] = React.useState(false)
 
   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
+  const streak = useStreak(token, attempt?.result)
 
   async function load(t: string | null) {
     const res = await fetch(`${API}/daily-challenges/today`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
@@ -199,7 +203,12 @@ export default function SilhouettePage() {
                 {!revealedAnswer && isGuest && (
                   <p className="mt-1 text-sm text-muted-foreground">Log in to see who it was.</p>
                 )}
-                {isGuest && <GuestCta variant="after" />}
+                {challenge && attempt && (
+                  <div className="mt-4">
+                    <ShareButton text={silhouetteShareText(challenge.challenge_date, attempt.guesses.length, attempt.result === "solved", MAX_GUESSES, streak)} />
+                  </div>
+                )}
+                {isGuest && <GuestCta variant="after" missed={attempt?.result === "solved" ? "+150" : null} />}
                 <Link href="/" className="mt-4 inline-block text-sm text-primary hover:underline">
                   Back home
                 </Link>

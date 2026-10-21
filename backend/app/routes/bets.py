@@ -41,7 +41,9 @@ async def place_bet(request: PlaceBetRequest, current_user: user_dependency):
 
 @BetsRouter.get("/me", response_model=list[BetWithDetails])
 async def get_my_bets(current_user: user_dependency):
-    bets = bet_utils.get_bets_by_user(auth_utils.get_user_id(current_user.username))
+    user_id = auth_utils.get_user_id(current_user.username)
+    bets = bet_utils.get_bets_by_user(user_id)
+    payouts = bet_utils.get_payouts_by_user(user_id)
     result = []
     for bet in bets:
         outcome = bet_utils.get_outcome_by_id(bet.outcome_id)
@@ -57,7 +59,8 @@ async def get_my_bets(current_user: user_dependency):
             event_id=event.id,
             event_title=event.title,
             event_status=event.status,
-            potential_payout=potential
+            potential_payout=potential,
+            payout=payouts.get(bet.id),
         ))
     return result
 

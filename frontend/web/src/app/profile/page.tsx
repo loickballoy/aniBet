@@ -2,6 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { ShareButton } from "@/components/ui/ShareButton"
+import { calledItShareText } from "@/lib/share"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import { EditableImage } from "@/components/ui/EditableImage"
 
@@ -40,6 +42,7 @@ type BetWithDetails = {
   event_title: string | null
   event_status: string | null
   potential_payout: number | null
+  payout: number | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -437,7 +440,8 @@ export default function ProfilePage() {
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {bets.slice().reverse().map((bet) => (
-                  <Link key={bet.id} href={bet.event_id ? `/markets/${bet.event_id}` : "#"} className="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/30 p-3 transition hover:border-primary/40">
+                  <div key={bet.id}>
+                  <Link href={bet.event_id ? `/markets/${bet.event_id}` : "#"} className="flex items-start justify-between gap-3 rounded-xl border border-border/50 bg-background/30 p-3 transition hover:border-primary/40">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium">{bet.event_title ?? "Unknown Event"}</p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{bet.outcome_label ?? "—"}</p>
@@ -455,6 +459,18 @@ export default function ProfilePage() {
                       <p className="mt-1 text-[11px] text-muted-foreground">{formatPts(bet.points_placed)} pts</p>
                     </div>
                   </Link>
+                  {/* Le moment le plus partageable : un pari gagné. */}
+                  {bet.status === "won" && bet.payout != null && bet.event_id && (
+                    <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
+                      <span className="text-[11px] text-emerald-400">You called it · +{formatPts(bet.payout)} pts</span>
+                      <ShareButton
+                        label="Share"
+                        className="px-2.5 py-1 text-[11px]"
+                        text={calledItShareText(bet.event_title ?? "", bet.outcome_label ?? "", bet.payout, bet.event_id)}
+                      />
+                    </div>
+                  )}
+                  </div>
                 ))}
               </div>
             )}

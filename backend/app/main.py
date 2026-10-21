@@ -17,6 +17,7 @@ from app.routes.seasons import SeasonRouter
 from app.routes.daily import DailyRouter
 from app.routes.weekly import WeeklyRouter
 from app.routes.upload import UploadsRouter
+from app.routes.growth import GrowthRouter
 
 from app.setting import settings
 
@@ -77,3 +78,4 @@ app.include_router(SeasonRouter)
 app.include_router(DailyRouter)
 app.include_router(WeeklyRouter)
 app.include_router(UploadsRouter)
+app.include_router(GrowthRouter)

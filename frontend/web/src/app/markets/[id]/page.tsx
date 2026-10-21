@@ -1,5 +1,8 @@
+import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { ShareButton } from "@/components/ui/ShareButton"
+import { marketShareText } from "@/lib/share"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import BetBox from "@/components/ui/bet/BetBox"
 import ResolutionBox from "@/components/ui/bet/ResolutionBox"
@@ -92,6 +95,22 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+// Titre/description propres quand le lien est collé sur Discord, X, Reddit…
+// L'image d'aperçu vient de opengraph-image.tsx (même dossier).
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await props.params
+  const event = await getEvent(id).catch(() => null)
+  if (!event) return { title: "Market not found · aniBet" }
+  const options = (event.outcomes ?? []).map((o) => o.outcome).join(" · ")
+  const description = `${options ? `${options} — ` : ""}place your call with AniCoins on aniBet, the anime & manga prediction game.`
+  return {
+    title: `${event.title} · aniBet`,
+    description,
+    openGraph: { title: event.title, description, type: "website" },
+    twitter: { card: "summary_large_image", title: event.title, description },
+  }
+}
+
 export default async function MarketDetailPage(props: { params: any }) {
   const resolvedParams = await Promise.resolve(props.params)
   const id = resolvedParams?.id as string | undefined
@@ -123,13 +142,14 @@ export default async function MarketDetailPage(props: { params: any }) {
       <main className="mx-auto w-full max-w-5xl px-4 py-8">
 
         {/* Back */}
-        <div style={{ animation: "fadeUp 0.3s ease both" }}>
+        <div className="flex items-center justify-between gap-3" style={{ animation: "fadeUp 0.3s ease both" }}>
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 rounded-xl border border-border/50 bg-background/30 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur-sm transition hover:border-border hover:text-foreground"
           >
             ← Retour
           </Link>
+          <ShareButton label="Share" className="px-3 py-1.5 text-xs" text={marketShareText(event.title, event.id)} />
         </div>
 
         {/* ── Hero cover ── */}

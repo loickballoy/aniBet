@@ -5,6 +5,9 @@ import Link from "next/link"
 import { SiteHeader } from "@/components/ui/layout/SiteHeader"
 import { GuestCta } from "@/components/ui/GuestCta"
 import { loadGuestProgress, saveGuestProgress } from "@/lib/guestPlay"
+import { ShareButton } from "@/components/ui/ShareButton"
+import { triviaShareText } from "@/lib/share"
+import { useStreak } from "@/lib/useStreak"
 
 type Question = {
   question: string
@@ -42,6 +45,7 @@ export default function TriviaPage() {
   const [error, setError] = React.useState<string | null>(null)
 
   const API = process.env.NEXT_PUBLIC_API_URL ?? ""
+  const streak = useStreak(token, attempt?.result)
 
   async function load(t: string | null) {
     const res = await fetch(`${API}/daily-challenges/today`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
@@ -122,6 +126,11 @@ export default function TriviaPage() {
 
   const concluded = attempt != null
   const questions = challenge.content.questions
+  // Juste/faux par question : fourni tel quel aux invités, recalculé depuis la
+  // solution pour les joueurs connectés.
+  const correctness: boolean[] | null = !concluded ? null
+    : revealedAnswer?.correct
+      ?? (revealedAnswer?.correct_indices ? attempt!.guesses.map((g, i) => g === revealedAnswer.correct_indices![i]) : null)
 
   return (
     <>
@@ -199,7 +208,12 @@ export default function TriviaPage() {
         )}
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
-        {concluded && isGuest && <GuestCta variant="after" />}
+        {correctness && (
+          <div className="mt-5 flex justify-center">
+            <ShareButton text={triviaShareText(challenge.challenge_date, correctness, streak)} />
+          </div>
+        )}
+        {concluded && isGuest && <GuestCta variant="after" missed={attempt!.result === "solved" ? "+200" : null} />}
         {concluded && (
           <Link href="/" className="mt-5 block text-center text-sm text-primary hover:underline">
             Back home

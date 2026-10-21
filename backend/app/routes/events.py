@@ -28,8 +28,9 @@ async def get_trending_events():
 
 
 @EventRouter.get('/', response_model=list[EventWithOutcomes])
-async def list_events(status: str | None = None, series_id: int | None = None, limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)):
-    events = bet_utils.get_events(status=status, series_id=series_id, limit=limit, offset=offset)
+async def list_events(status: str | None = None, series_id: int | None = None, limit: int = Query(20, ge=1, le=100),
+                      offset: int = Query(0, ge=0), sort: str = Query("recent", pattern="^(recent|closing)$")):
+    events = bet_utils.get_events(status=status, series_id=series_id, limit=limit, offset=offset, sort=sort)
     result = []
     for event in events:
         outcomes = bet_utils.get_outcomes_for_event(event.id)
@@ -154,6 +155,7 @@ async def finalize_payout(event_id: int, current_user: user_dependency):
         bet_utils.finalize_payout(event_id)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    moderation_utils.notify_bettors_of_result(event_id)
 
     return {"message": "Payout finalized"}
 

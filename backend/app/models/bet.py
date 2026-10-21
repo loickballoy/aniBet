@@ -25,3 +25,4 @@ class BetWithDetails(Bet):
     event_title: Optional[str] = None
     event_status: Optional[str] = None
     potential_payout: Optional[float] = None
+    payout: Optional[int] = None  # gain réel une fois payé (pour la carte "I called it")
