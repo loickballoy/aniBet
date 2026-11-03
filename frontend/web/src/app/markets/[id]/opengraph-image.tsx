@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og"
+import { LOGO_DATA_URI } from "@/lib/logo"
 
 // Aperçu affiché quand un lien de pari est collé sur Discord/X/Reddit :
 // la question et la répartition actuelle des mises, comme un ticket de pari.
@@ -49,8 +50,10 @@ export default async function Image({ params }: { params: Promise<{ id: string }
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", fontSize: 36, fontWeight: 800 }}>
-            <span>ani</span><span style={{ color: "#a78bfa" }}>Bet</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 40, fontWeight: 800 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={LOGO_DATA_URI} width={56} height={56} alt="" />
+            <span>ani</span><span style={{ color: "#7cb8ff", marginLeft: -16 }}>Bet</span>
           </div>
           {event?.status === "open" && (
             <div style={{ display: "flex", fontSize: 24, padding: "8px 20px", borderRadius: 999, background: "rgba(52,211,153,0.15)", color: "#34d399" }}>

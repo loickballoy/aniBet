@@ -55,10 +55,11 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-4 px-4">
 
-        {/* Temporary text-only logo — the old logo (chibi Hakari, Jujutsu
-            Kaisen) was removed: using a licensed character as a brand logo
-            is a real infringement risk. To replace with an original logo. */}
-        <Link href="/" className="shrink-0">
+        {/* Logo original (public/logo.svg) : une AniCoin, un "A" et la flèche
+            d'un pari gagnant. Pas de personnage sous licence (risque juridique). */}
+        <Link href="/" className="flex shrink-0 items-center gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="" width={28} height={28} className="h-7 w-7" />
           <span className="font-[family-name:var(--font-display)] text-xl font-extrabold tracking-tight">
             ani<span className="text-primary">Bet</span>
           </span>
