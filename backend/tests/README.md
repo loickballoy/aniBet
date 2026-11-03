@@ -1,7 +1,8 @@
 # Suite de tests — aniBet backend
 
-34 tests couvrant l'intégralité de l'API migrée : auth, séries, events,
-paris + résolution (le coeur transactionnel), bingo, ranking, transactions.
+126 tests couvrant l'API : auth et sécurité, séries, events, paris et
+paiements (le coeur transactionnel), modération et disputes, bingo, saisons,
+jeux quotidiens et hebdomadaires, jeu invité, trivia automatique et croissance.
 
 ## Isolation
 
