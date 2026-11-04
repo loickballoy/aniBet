@@ -23,6 +23,8 @@ aniBet is a full-stack web app where fans predict what happens next in the serie
 
 AniCoins are play money: nothing is bought or cashed out. The project is built like a real money system all the same: balances only move inside database transactions, every movement is written to a ledger, and payouts are idempotent.
 
+![Anibet Home Page](docs/screenshots/home.png)
+
 ## Contents
 
 - [Features](#features)
